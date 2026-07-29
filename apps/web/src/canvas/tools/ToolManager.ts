@@ -7,6 +7,8 @@ import { SelectTool } from './SelectTool';
 import {
   BoxTool,
   EraserTool,
+  EyedropperTool,
+  FillTool,
   HandTool,
   LineTool,
   PenTool,
@@ -18,12 +20,13 @@ import {
 export const DEFAULT_STYLE: StyleDefaults = {
   stroke: 'var(--canvas-ink)',
   fill: 'transparent',
-  strokeWidth: 2,
+  strokeWidth: 4,
   dash: 'solid',
   opacity: 1,
   fontSize: 18,
   textAlign: 'center',
   stickyColor: STICKY_COLORS[0],
+  brush: 'brush',
 };
 
 /**
@@ -63,6 +66,7 @@ export class ToolManager {
       },
       getSelection: () => this.selection,
       setSelection: (ids) => this.setSelection(ids),
+      setStyle: (patch) => this.setStyle(patch),
       setTool: (id) => this.setTool(id),
       editText: (shape) => this.onEditText?.(shape),
       notify: () => this.onChange?.(),
@@ -76,6 +80,8 @@ export class ToolManager {
       pen: new PenTool('pen'),
       highlighter: new PenTool('highlighter'),
       eraser: new EraserTool(),
+      fill: new FillTool(),
+      eyedropper: new EyedropperTool(),
       rect: new BoxTool('rect'),
       ellipse: new BoxTool('ellipse'),
       line: new LineTool('line'),
@@ -144,6 +150,7 @@ export class ToolManager {
         if (patch.opacity !== undefined) p.opacity = patch.opacity;
         if (patch.fontSize !== undefined && shape && 'fontSize' in shape) p.fontSize = patch.fontSize;
         if (patch.stickyColor !== undefined && shape?.type === 'sticky') p.color = patch.stickyColor;
+        if (patch.brush !== undefined && shape?.type === 'draw') p.brush = patch.brush;
         return { id, patch: p as Partial<Shape> };
       });
       this.doc.updateMany(patches);

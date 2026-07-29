@@ -63,6 +63,9 @@ export default function App() {
       shapes: () => h.engine.allShapes(),
       selection: () => h.tools.getSelection(),
       setTool: (id: ToolId) => h.tools.setTool(id),
+      // Exposed so the e2e suite can drive the real style API rather than reaching into React.
+      setStyle: (patch: Partial<StyleDefaults>) => h.tools.setStyle(patch),
+      style: () => ({ ...h.tools.style }),
       undo: () => h.doc.undoManager.undo(),
       redo: () => h.doc.undoManager.redo(),
       seed: (n: number) => {

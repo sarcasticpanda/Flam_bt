@@ -93,12 +93,23 @@ export interface ArrowShape extends Omit<LineShape, 'type'> {
   bindEnd: ShapeId | null;
 }
 
+/** Brush character. Changes how a stroke is rendered, not what it stores. */
+export type BrushKind = 'pen' | 'brush' | 'marker' | 'pencil';
+
 export interface DrawShape extends BaseShape {
   type: 'draw';
   points: Point[];
   stroke: string;
   strokeWidth: number;
   blend: BlendMode;
+  /**
+   * Per-point pressure, 0..1, parallel to `points`.
+   *
+   * Optional: a mouse reports no pressure, and older strokes predate this field. When absent
+   * the renderer falls back to a constant-width stroke, so nothing breaks either way.
+   */
+  pressures?: number[];
+  brush?: BrushKind;
 }
 
 export interface TextShape extends BaseShape {

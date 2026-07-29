@@ -1,5 +1,8 @@
 import type { Camera } from '@board/canvas-engine';
-import { edgeIntersection, normalizePoints, shapeBounds, simplify, strokePath } from '@board/canvas-engine';
+import {
+  edgeIntersection, normalizePoints, resolveColor, shapeBounds,
+  simplifyWithIndices, smoothPressures, strokePath, variableWidthPath,
+} from '@board/canvas-engine';
 import { STICKY_SIZE, newShapeId, type Point, type Shape, type ShapeId } from '@board/shared';
 import type { CanvasPointerEvent, Tool, ToolContext, ToolId } from './types';
 
@@ -236,32 +239,55 @@ export class LineTool implements Tool {
 export class PenTool implements Tool {
   readonly cursor = 'crosshair';
   private points: Point[] = [];
+  private pressures: number[] = [];
   private drawing = false;
 
   constructor(readonly id: 'pen' | 'highlighter') {}
 
+  /** Marker and highlighter are deliberately fat; brush and pencil taper with pressure. */
+  private widthFor(ctx: ToolContext): number {
+    if (this.id === 'highlighter') return Math.max(ctx.style.strokeWidth * 4, 16);
+    const brush = ctx.style.brush;
+    if (brush === 'marker') return Math.max(ctx.style.strokeWidth * 2.2, 8);
+    if (brush === 'brush') return Math.max(ctx.style.strokeWidth * 2.4, 8);
+    return ctx.style.strokeWidth;
+  }
+
+  private brushFor(ctx: ToolContext) {
+    return this.id === 'highlighter' ? 'marker' : ctx.style.brush;
+  }
+
+  private push(x: number, y: number, pressure: number): void {
+    this.points.push([x, y]);
+    // A mouse always reports 0.5 (or 0). Only a stylus gives a real curve, and when there is
+    // no real signal a constant 0.5 is exactly the right fallback.
+    this.pressures.push(pressure > 0 ? pressure : 0.5);
+  }
+
   onPointerDown(e: CanvasPointerEvent, ctx: ToolContext): void {
     if (e.button !== 0) return;
     this.drawing = true;
-    this.points = [[e.world.x, e.world.y]];
+    this.points = [];
+    this.pressures = [];
+    this.push(e.world.x, e.world.y, e.native.pressure ?? 0.5);
     ctx.engine.setInteracting(true);
   }
 
   onPointerMove(e: CanvasPointerEvent, ctx: ToolContext): void {
     if (!this.drawing) return;
 
-    // getCoalescedEvents captures the FULL high-frequency input path. Without it a fast stroke
-    // is sampled at display rate and comes out visibly polygonal — the clearest tell that a
-    // drawing tool is a toy.
+    // getCoalescedEvents captures the FULL high-frequency input path, including every pressure
+    // sample between frames. Without it a fast stroke is sampled at display rate and comes out
+    // visibly polygonal — the clearest tell that a drawing tool is a toy.
     const coalesced = e.native.getCoalescedEvents?.() ?? [];
     if (coalesced.length > 1) {
       const rect = (e.native.target as HTMLElement).getBoundingClientRect();
       for (const ce of coalesced) {
         const w = ctx.engine.camera.screenToWorld(ce.clientX - rect.left, ce.clientY - rect.top);
-        this.points.push([w.x, w.y]);
+        this.push(w.x, w.y, ce.pressure ?? 0.5);
       }
     } else {
-      this.points.push([e.world.x, e.world.y]);
+      this.push(e.world.x, e.world.y, e.native.pressure ?? 0.5);
     }
     ctx.engine.markActiveDirty();
   }
@@ -273,6 +299,7 @@ export class PenTool implements Tool {
 
     if (this.points.length < 2) {
       this.points = [];
+      this.pressures = [];
       ctx.engine.markActiveDirty();
       return;
     }
@@ -280,9 +307,15 @@ export class PenTool implements Tool {
     // Simplify on pointerup, not during the stroke: RDP needs the whole path, and simplifying
     // live would make the line visibly re-shape under the cursor.
     const epsilon = 0.6 / ctx.engine.camera.zoom;
-    const simplified = simplify(this.points, epsilon);
+    const kept = simplifyWithIndices(this.points, epsilon);
+    const simplified = kept.map((i) => this.points[i]!);
+    // Pressure must be resampled through the SAME index set, or width and position desync and
+    // the stroke tapers in the wrong places.
+    const pressures = smoothPressures(kept.map((i) => this.pressures[i] ?? 0.5));
+
     const norm = normalizePoints(simplified);
     const b = bounds(norm.points);
+    const brush = this.brushFor(ctx);
 
     const shape = {
       ...baseFields(ctx, ctx.doc.nextZ(1)[0]!),
@@ -292,14 +325,17 @@ export class PenTool implements Tool {
       w: b.w,
       h: b.h,
       points: norm.points,
+      pressures,
+      brush,
       stroke: ctx.style.stroke,
-      strokeWidth: this.id === 'highlighter' ? Math.max(ctx.style.strokeWidth * 4, 16) : ctx.style.strokeWidth,
+      strokeWidth: this.widthFor(ctx),
       blend: this.id === 'highlighter' ? 'multiply' : 'normal',
       opacity: this.id === 'highlighter' ? 0.4 : ctx.style.opacity,
     } as Shape;
 
     ctx.doc.add(shape);
     this.points = [];
+    this.pressures = [];
     ctx.engine.markActiveDirty();
     // Stay on the pen: people draw several strokes in a row.
   }
@@ -307,25 +343,97 @@ export class PenTool implements Tool {
   onCancel(ctx: ToolContext): void {
     this.drawing = false;
     this.points = [];
+    this.pressures = [];
     ctx.engine.setInteracting(false);
     ctx.engine.markActiveDirty();
   }
 
   drawPreview(rc: CanvasRenderingContext2D, camera: Camera, ctx: ToolContext): void {
     if (this.points.length < 2) return;
-    rc.strokeStyle = ctx.engine.getTheme().canvasInk;
-    rc.lineWidth =
-      (this.id === 'highlighter' ? Math.max(ctx.style.strokeWidth * 4, 16) : ctx.style.strokeWidth);
-    rc.lineCap = 'round';
-    rc.lineJoin = 'round';
+    const width = this.widthFor(ctx);
+    const brush = this.brushFor(ctx);
+    const color = resolveColor(ctx.style.stroke, ctx.engine.getTheme());
+
     rc.setLineDash([]);
     if (this.id === 'highlighter') rc.globalAlpha = 0.4;
-    // Preview uses the same smoothing as the committed shape, so the stroke does not visibly
-    // change shape the instant you lift the pointer.
-    rc.stroke(strokePath(this.points));
+
+    // The preview uses the SAME renderer path as the committed shape, so the stroke does not
+    // visibly change the instant you lift the pointer.
+    if (brush === 'brush' || brush === 'pencil') {
+      rc.fillStyle = color;
+      rc.fill(
+        variableWidthPath(this.points, this.pressures, width, 0, 0, brush === 'brush' ? 1 : 0.4),
+      );
+    } else {
+      rc.strokeStyle = color;
+      rc.lineWidth = width;
+      rc.lineCap = brush === 'marker' ? 'butt' : 'round';
+      rc.lineJoin = 'round';
+      rc.stroke(strokePath(this.points));
+    }
     rc.globalAlpha = 1;
     void camera;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fill bucket + eyedropper
+// ---------------------------------------------------------------------------
+
+/**
+ * Fill bucket.
+ *
+ * Object fill, not flood fill: it recolours the shape you click. True pixel flood fill is
+ * meaningless on a vector canvas — there are no pixel regions to seed from, and the result
+ * could not survive a zoom or a re-render.
+ */
+export class FillTool implements Tool {
+  readonly id = 'fill' as const;
+  readonly cursor = 'crosshair';
+
+  onPointerDown(): void {}
+  onPointerMove(): void {}
+
+  onPointerUp(e: CanvasPointerEvent, ctx: ToolContext): void {
+    if (e.button !== 0) return;
+    const hit = ctx.engine.hitTest(e.world.x, e.world.y);
+    if (!hit) return;
+
+    if (hit.type === 'sticky') {
+      ctx.doc.update(hit.id, { color: ctx.style.stickyColor } as Partial<Shape>);
+    } else if ('fill' in hit) {
+      ctx.doc.update(hit.id, { fill: ctx.style.fill } as Partial<Shape>);
+    } else if ('stroke' in hit) {
+      // Lines and strokes have no fill; recolour the stroke instead of doing nothing, which
+      // is what someone clicking a line with the bucket actually wants.
+      ctx.doc.update(hit.id, { stroke: ctx.style.stroke } as Partial<Shape>);
+    }
+  }
+
+  onCancel(): void {}
+}
+
+/** Eyedropper — adopt the colour of whatever you click as the current style. */
+export class EyedropperTool implements Tool {
+  readonly id = 'eyedropper' as const;
+  readonly cursor = 'copy';
+
+  onPointerDown(): void {}
+  onPointerMove(): void {}
+
+  onPointerUp(e: CanvasPointerEvent, ctx: ToolContext): void {
+    if (e.button !== 0) return;
+    const hit = ctx.engine.hitTest(e.world.x, e.world.y);
+    if (!hit) return;
+
+    if (hit.type === 'sticky') ctx.setStyle({ stickyColor: hit.color });
+    else if ('stroke' in hit) ctx.setStyle({ stroke: hit.stroke });
+
+    // Return to the previous tool: picking a colour is a momentary action, not a mode.
+    ctx.setTool('select');
+  }
+
+  onCancel(): void {}
 }
 
 // ---------------------------------------------------------------------------

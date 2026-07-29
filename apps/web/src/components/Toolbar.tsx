@@ -1,6 +1,6 @@
 import {
   ArrowUpRight, Circle, Eraser, Hand, Highlighter, Minus,
-  MousePointer2, Pen, Square, StickyNote, Type,
+  MousePointer2, PaintBucket, Pen, Pipette, Square, StickyNote, Type,
 } from 'lucide-react';
 import type { ToolId } from '../canvas/tools/types';
 
@@ -20,6 +20,8 @@ const TOOLS: ToolDef[] = [
   { id: 'pen', label: 'Pen', key: 'P', icon: <Pen size={SIZE} strokeWidth={STROKE} /> },
   { id: 'highlighter', label: 'Highlighter', key: 'M', icon: <Highlighter size={SIZE} strokeWidth={STROKE} /> },
   { id: 'eraser', label: 'Eraser', key: 'E', icon: <Eraser size={SIZE} strokeWidth={STROKE} /> },
+  { id: 'fill', label: 'Fill', key: 'G', icon: <PaintBucket size={SIZE} strokeWidth={STROKE} /> },
+  { id: 'eyedropper', label: 'Pick colour', key: 'I', icon: <Pipette size={SIZE} strokeWidth={STROKE} /> },
   { id: 'rect', label: 'Rectangle', key: 'R', icon: <Square size={SIZE} strokeWidth={STROKE} /> },
   { id: 'ellipse', label: 'Ellipse', key: 'O', icon: <Circle size={SIZE} strokeWidth={STROKE} /> },
   { id: 'line', label: 'Line', key: 'L', icon: <Minus size={SIZE} strokeWidth={STROKE} /> },
@@ -68,8 +70,8 @@ export function Toolbar({
 
       {TOOLS.map((tool, i) => (
         <div key={tool.id} className="flex items-center">
-          {/* Separator between navigation, freehand, and shape groups. */}
-          {(i === 2 || i === 5) && (
+          {/* Separators between navigation, paint, and shape groups. */}
+          {(i === 2 || i === 7) && (
             <div className="mx-1 h-6 w-px" style={{ background: 'var(--chrome-hairline)' }} />
           )}
           <button

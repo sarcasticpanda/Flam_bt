@@ -1,5 +1,5 @@
 import type { Camera, Engine } from '@board/canvas-engine';
-import type { Shape, ShapeId, DashStyle, TextAlign } from '@board/shared';
+import type { Shape, ShapeId, DashStyle, TextAlign, BrushKind } from '@board/shared';
 import type { BoardDoc } from '../../collab/BoardDoc';
 
 export type ToolId =
@@ -8,6 +8,8 @@ export type ToolId =
   | 'pen'
   | 'highlighter'
   | 'eraser'
+  | 'fill'
+  | 'eyedropper'
   | 'rect'
   | 'ellipse'
   | 'line'
@@ -38,6 +40,8 @@ export interface StyleDefaults {
   fontSize: number;
   textAlign: TextAlign;
   stickyColor: string;
+  /** Brush character for freehand strokes. */
+  brush: BrushKind;
 }
 
 export interface ToolContext {
@@ -48,6 +52,9 @@ export interface ToolContext {
 
   getSelection(): ShapeId[];
   setSelection(ids: ShapeId[]): void;
+
+  /** Update the active style (and restyle the selection, if any). */
+  setStyle(patch: Partial<StyleDefaults>): void;
 
   setTool(id: ToolId): void;
   /** Open the inline on-canvas text editor for a shape. */
@@ -85,8 +92,11 @@ export const TOOL_SHORTCUTS: Record<string, ToolId> = {
   v: 'select',
   h: 'hand',
   p: 'pen',
+  b: 'pen', // brush — same tool, the brush kind lives in the style panel
   m: 'highlighter',
   e: 'eraser',
+  g: 'fill',
+  i: 'eyedropper',
   r: 'rect',
   o: 'ellipse',
   l: 'line',

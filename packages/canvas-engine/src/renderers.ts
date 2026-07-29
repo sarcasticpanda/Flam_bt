@@ -1,6 +1,6 @@
 import type { Shape } from '@board/shared';
 import { LOD_MICRO_THRESHOLD, LOD_ZOOM_THRESHOLD } from '@board/shared';
-import { strokePath } from './smoothing.js';
+import { strokePath, variableWidthPath } from './smoothing.js';
 import { resolveColor, type ThemeColors } from './theme.js';
 
 export interface RenderCtx {
@@ -199,25 +199,60 @@ function drawFreehand(r: RenderCtx, s: Extract<Shape, { type: 'draw' }>, low: bo
   const { ctx } = r;
   if (s.points.length === 0) return;
 
-  ctx.strokeStyle = resolveColor(s.stroke, r.theme);
-  ctx.lineWidth = s.strokeWidth;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  const color = resolveColor(s.stroke, r.theme);
+
   if (s.blend === 'multiply') {
     ctx.globalCompositeOperation = 'multiply';
     ctx.globalAlpha = Math.min(ctx.globalAlpha, 0.4);
   }
 
   if (low) {
-    // Straight segments at low zoom: the Bezier construction is invisible below 25% and it is
-    // the single most expensive path in the renderer at 10k shapes.
+    // Straight segments at low zoom: outline construction is invisible below 25% and it is the
+    // most expensive path in the renderer at 10k shapes.
+    ctx.strokeStyle = color;
+    ctx.lineWidth = s.strokeWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.beginPath();
     ctx.moveTo(s.x + s.points[0]![0], s.y + s.points[0]![1]);
     for (let i = 1; i < s.points.length; i += 2) {
       ctx.lineTo(s.x + s.points[i]![0], s.y + s.points[i]![1]);
     }
     ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+    return;
+  }
+
+  const brush = s.brush ?? 'pen';
+
+  if (brush === 'brush' || brush === 'pencil') {
+    // Variable width: FILL an outline, because Canvas 2D cannot stroke a varying width.
+    ctx.fillStyle = color;
+    ctx.fill(
+      variableWidthPath(
+        s.points,
+        s.pressures,
+        s.strokeWidth,
+        s.x,
+        s.y,
+        brush === 'brush' ? 1 : 0.4,
+      ),
+    );
+
+    // Pencil gets a second, offset, translucent pass — cheap graphite texture without an
+    // image fill or a pattern.
+    if (brush === 'pencil') {
+      ctx.globalAlpha *= 0.35;
+      ctx.fill(
+        variableWidthPath(s.points, s.pressures, s.strokeWidth * 0.6, s.x + 0.6, s.y + 0.4, 0.4),
+      );
+    }
   } else {
+    // Pen and marker: constant width, smoothed spine.
+    ctx.strokeStyle = color;
+    ctx.lineWidth = s.strokeWidth;
+    ctx.lineCap = brush === 'marker' ? 'butt' : 'round';
+    ctx.lineJoin = 'round';
     ctx.stroke(strokePath(s.points, s.x, s.y));
   }
 

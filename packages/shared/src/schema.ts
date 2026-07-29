@@ -85,6 +85,8 @@ export const shapeSchema = z.discriminatedUnion('type', [
     type: z.literal('draw'),
     ...pathStyle,
     blend: z.enum(['normal', 'multiply']),
+    pressures: z.array(z.number()).optional(),
+    brush: z.enum(['pen', 'brush', 'marker', 'pencil']).optional(),
   }),
   baseShapeSchema.extend({
     type: z.literal('text'),
