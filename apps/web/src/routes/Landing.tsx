@@ -65,9 +65,15 @@ export function Landing({ onOpen }: { onOpen: (code: string) => void }) {
     } catch (err) {
       // Inline error on the landing page, never a 404 route — you should be able to fix a typo
       // without losing the page you are on.
+      //
+      // Surface the SERVER's message when it sent one. Collapsing every failure into "could not
+      // reach the server" made a permissions problem look like an outage: the server was
+      // replying 403 "ask the board owner to invite your account", and we discarded it.
       setError(
-        err instanceof ApiError && err.status === 404
-          ? `No board with the code ${clean}.`
+        err instanceof ApiError
+          ? err.status === 404
+            ? `No board with the code ${clean}.`
+            : err.message
           : 'Could not reach the server.',
       );
       setBusy(false);
