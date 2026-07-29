@@ -1,6 +1,8 @@
 import { Server as SocketIOServer } from 'socket.io';
 import type { Server as HttpServer } from 'node:http';
 import { MAX_CALL_PEERS, RTC_NAMESPACE, type RtcPeer } from '@board/shared';
+import { store } from '../db.js';
+import { verifyToken, type AuthTokenPayload } from '../auth/jwt.js';
 
 /**
  * WebRTC signaling.
@@ -20,14 +22,29 @@ export function registerSignaling(server: HttpServer, clientOrigin: string): voi
   /** room code -> peers */
   const rooms = new Map<string, Map<string, RtcPeer>>();
 
+  rtc.use((socket, next) => {
+    const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
+    const user = verifyToken(token);
+    if (!user) return next(new Error('unauthorized'));
+    socket.data.user = user;
+    next();
+  });
+
   rtc.on('connection', (socket) => {
     let joinedRoom: string | null = null;
+    const user = socket.data.user as AuthTokenPayload;
 
-    socket.on('rtc:join', ({ room, userId, name, colorIndex }) => {
+    socket.on('rtc:join', ({ room, colorIndex }) => {
       if (typeof room !== 'string' || !room) return;
+      const found = store.findByAnyCode(room);
+      if (!found || !store.accessFor(found.board, user.sub)) {
+        socket.emit('rtc:forbidden');
+        return;
+      }
+      const canonicalRoom = found.board.code;
 
-      let peers = rooms.get(room);
-      if (!peers) rooms.set(room, (peers = new Map()));
+      let peers = rooms.get(canonicalRoom);
+      if (!peers) rooms.set(canonicalRoom, (peers = new Map()));
 
       // Mesh topology: N peers means N-1 connections each. Past 6 the upstream bandwidth on a
       // laptop collapses, so refuse with a REASON rather than letting the call degrade silently.
@@ -36,20 +53,20 @@ export function registerSignaling(server: HttpServer, clientOrigin: string): voi
         return;
       }
 
-      const peer: RtcPeer = { peerId: socket.id, userId, name, colorIndex };
+      const peer: RtcPeer = { peerId: socket.id, userId: user.sub, name: user.name, colorIndex };
 
       // Send the existing roster BEFORE announcing the newcomer, so the joiner initiates offers
       // and nobody double-offers.
       socket.emit('rtc:peers', { peers: [...peers.values()] });
 
       peers.set(socket.id, peer);
-      joinedRoom = room;
-      socket.join(room);
-      socket.to(room).emit('rtc:peer-joined', { peer });
+      joinedRoom = canonicalRoom;
+      socket.join(canonicalRoom);
+      socket.to(canonicalRoom).emit('rtc:peer-joined', { peer });
     });
 
-    socket.on('rtc:signal', ({ room, to, data }) => {
-      if (!room || !to) return;
+    socket.on('rtc:signal', ({ to, data }) => {
+      if (!joinedRoom || !to || !rooms.get(joinedRoom)?.has(to)) return;
       rtc.to(to).emit('rtc:signal', { from: socket.id, data });
     });
 

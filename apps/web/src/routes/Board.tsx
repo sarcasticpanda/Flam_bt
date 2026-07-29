@@ -6,7 +6,7 @@ import { TextEditor } from '../canvas/TextEditor';
 import { paintOverlay } from '../canvas/overlay';
 import { Session, type ConnectionStatus, type Peer } from '../collab/Session';
 import { loadIdentity } from '../collab/identity';
-import { api, rememberBoard, wsUrl, type BoardMeta } from '../lib/api';
+import { api, getAuthToken, rememberBoard, wsUrl, type BoardMeta } from '../lib/api';
 import { PerfHUD } from '../components/PerfHUD';
 import { ZoomControls } from '../components/ZoomControls';
 import { ThemeMenu } from '../components/ThemeMenu';
@@ -19,6 +19,7 @@ import { PresenceBar } from '../components/PresenceBar';
 import { CommandBar } from '../components/CommandBar';
 import { CallPanel, CallJoinButtons } from '../components/CallPanel';
 import { BottomLeftStack } from '../components/BottomLeftStack';
+import { ChatPanel } from '../components/ChatPanel';
 import { CallManager, type CallParticipant } from '../features/call/CallManager';
 import { runAIFeature } from '../features/ai/run';
 import { findFreeSpace } from '../features/ai/layout';
@@ -62,6 +63,15 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
   const [callParticipants, setCallParticipants] = useState<CallParticipant[]>([]);
   const [callVersion, setCallVersion] = useState(0);
 
+  const [timeLeft, setTimeLeft] = useState(900); // 15 minutes in seconds
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // ---- load board metadata -------------------------------------------------
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +99,7 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
       identityRef.current,
       meta.readOnly,
       wsUrl(),
+      getAuthToken() ?? '',
     );
     sessionRef.current = session;
 
@@ -235,7 +246,7 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
     (withVideo: boolean) => {
       if (!meta) return;
       if (!callRef.current) {
-        const call = new CallManager(meta.code, identityRef.current);
+        const call = new CallManager(meta.code, identityRef.current, getAuthToken() ?? '');
         call.onChange = () => {
           setCallParticipants(call.getParticipants());
           setCallVersion((v) => v + 1);
@@ -322,6 +333,33 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
     );
   }
 
+  if (timeLeft === 0) {
+    return (
+      <div
+        className="grid h-full w-full place-items-center px-6 text-center"
+        style={{ background: 'var(--canvas-bg)', color: 'var(--canvas-ink)', position: 'absolute', zIndex: 9999 }}
+      >
+        <div>
+          <h2 style={{ fontSize: 24, fontWeight: 'bold' }}>Session Expired</h2>
+          <p style={{ fontSize: 16, marginTop: 8 }}>Your 15-minute session has ended.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-6 rounded-lg px-6 py-3"
+            style={{ background: 'var(--canvas-ink)', color: 'var(--canvas-bg)', fontSize: 16, fontWeight: 'bold' }}
+          >
+            Start New Session
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       <BoardCanvas
@@ -383,6 +421,9 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
             }
           }}
         />
+        <div className="flex items-center justify-center rounded-full bg-red-500/10 px-3 py-1 text-sm font-semibold text-red-500 ring-1 ring-red-500/20">
+          Session Ends: {formatTime(timeLeft)}
+        </div>
         <ThemeMenu theme={theme} onChange={applyTheme} />
       </header>
 
@@ -441,6 +482,7 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
       </BottomLeftStack>
 
       <DevSeeder engine={handles?.engine ?? null} doc={handles?.doc ?? null} />
+      <ChatPanel doc={handles?.doc ?? null} identity={identityRef.current} readOnly={meta?.readOnly ?? false} />
       <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );

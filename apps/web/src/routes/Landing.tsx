@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, Clock, Plus, Trash2 } from 'lucide-react';
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from '@board/shared';
-import { ApiError, api, forgetBoard, getRecentBoards, type RecentBoard } from '../lib/api';
+import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, type PublicUser } from '@board/shared';
+import { ApiError, api, clearAuth, forgetBoard, getRecentBoards, getStoredUser, type AccountBoard, type RecentBoard } from '../lib/api';
+import { AuthDialog } from '../components/AuthDialog';
 
 /**
  * Landing: create a board, join one by code, or reopen a recent one.
@@ -14,10 +15,25 @@ export function Landing({ onOpen }: { onOpen: (code: string) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [recents, setRecents] = useState<RecentBoard[]>([]);
+  const [user, setUser] = useState<PublicUser | null>(() => getStoredUser());
+  const [accountBoards, setAccountBoards] = useState<AccountBoard[]>([]);
+  const [authOpen, setAuthOpen] = useState(false);
 
-  useEffect(() => setRecents(getRecentBoards()), []);
+  useEffect(() => {
+    setRecents(getRecentBoards());
+    if (user) {
+      api.myBoards().then(({ boards }) => setAccountBoards(boards)).catch(() => {
+        clearAuth();
+        setUser(null);
+      });
+    }
+  }, [user]);
 
   const create = async () => {
+    if (!user) {
+      setAuthOpen(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -31,6 +47,11 @@ export function Landing({ onOpen }: { onOpen: (code: string) => void }) {
 
   const join = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      setAuthOpen(true);
+      setError('Sign in first. The board owner must invite your email.');
+      return;
+    }
     const clean = code.trim().toUpperCase();
     if (clean.length !== ROOM_CODE_LENGTH) {
       setError(`A board code is ${ROOM_CODE_LENGTH} characters.`);
@@ -70,8 +91,15 @@ export function Landing({ onOpen }: { onOpen: (code: string) => void }) {
             }}
           >
             THE<span style={{ opacity: 0.3 }}>———</span>BOARD
-          </h1>
-          <p className="mt-3 max-w-lg" style={{ opacity: 0.6, fontSize: 15, lineHeight: 1.55 }}>
+           </h1>
+           <button
+             onClick={() => user ? (clearAuth(), setUser(null), setAccountBoards([])) : setAuthOpen(true)}
+             className="mt-4 rounded-lg px-3 py-2"
+             style={{ border: '1px solid var(--canvas-grid)', fontSize: 12 }}
+           >
+             {user ? `Sign out · ${user.name}` : 'Sign in'}
+           </button>
+           <p className="mt-3 max-w-lg" style={{ opacity: 0.6, fontSize: 15, lineHeight: 1.55 }}>
             A shared canvas you join with a six-character code. Draw together, talk over a call,
             and let the AI turn the mess into a clean diagram.
           </p>
@@ -135,7 +163,7 @@ export function Landing({ onOpen }: { onOpen: (code: string) => void }) {
           </p>
         )}
 
-        {recents.length > 0 && (
+        {!user && recents.length > 0 && (
           <section className="mt-14">
             <h2
               className="mb-3 flex items-center gap-1.5"
@@ -146,7 +174,7 @@ export function Landing({ onOpen }: { onOpen: (code: string) => void }) {
                 opacity: 0.45,
               }}
             >
-              <Clock size={12} strokeWidth={2} /> Your boards
+              <Clock size={12} strokeWidth={2} /> Recently opened
             </h2>
             <ul className="grid gap-2 sm:grid-cols-2">
               {recents.map((b) => (
@@ -197,11 +225,30 @@ export function Landing({ onOpen }: { onOpen: (code: string) => void }) {
           </section>
         )}
 
+        {user && accountBoards.length > 0 && (
+          <section className="mt-10">
+            <h2 className="mb-3" style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.45 }}>
+              Your account boards
+            </h2>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {accountBoards.map((board) => (
+                <li key={board.id}>
+                  <button onClick={() => onOpen(board.code)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left" style={{ border: '1px solid var(--canvas-grid)' }}>
+                    <span className="shrink-0 rounded-md px-2 py-1" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--canvas-grid)' }}>{board.code}</span>
+                    <span className="min-w-0 flex-1 truncate" style={{ fontSize: 14 }}>{board.title || 'Untitled board'}</span>
+                    <span style={{ fontSize: 11, opacity: 0.45 }}>{board.role}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <footer className="mt-16" style={{ fontSize: 12, opacity: 0.4, lineHeight: 1.6 }}>
-          Anyone with a board code can open and edit it. Codes are unguessable enough for casual
-          use, but they are not authentication.
+          Boards are private. Sign in, then ask the owner to invite your account before opening a board.
         </footer>
       </div>
+      {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} onDone={(nextUser) => { setUser(nextUser); setAuthOpen(false); }} />}
     </div>
   );
 }

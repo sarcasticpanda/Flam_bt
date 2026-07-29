@@ -240,7 +240,19 @@ export function joinRoom(
   room.addConnection(socket, readOnly);
   console.log(`[yjs] ${code}: +1 peer (${room.size} total)${readOnly ? ' [view-only]' : ''}`);
 
+  // 15-minute session limit (900_000 ms)
+  const sessionTimeout = setTimeout(() => {
+    console.log(`[yjs] ${code}: Session expired for a peer after 15 minutes.`);
+    try {
+      // 1008 is Policy Violation, good for session expiry
+      socket.close(1008, 'Session expired after 15 minutes');
+    } catch {
+      // Ignore if already closed
+    }
+  }, 900_000);
+
   socket.on('close', () => {
+    clearTimeout(sessionTimeout);
     console.log(`[yjs] ${code}: -1 peer (${room.size} total)`);
     // Keep the room in memory briefly: a reload disconnects and reconnects within a second, and
     // tearing down the doc means re-reading it from disk for no reason.

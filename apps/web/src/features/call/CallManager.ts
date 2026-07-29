@@ -51,6 +51,7 @@ export class CallManager {
   constructor(
     private readonly room: string,
     private readonly identity: { userId: string; name: string; colorIndex: number },
+    private readonly token: string,
   ) {}
 
   getParticipants(): CallParticipant[] {
@@ -107,13 +108,15 @@ export class CallManager {
 
   private connectSignaling(): void {
     const base = import.meta.env.VITE_SERVER_HTTP || location.origin;
-    this.socket = io(`${base}${RTC_NAMESPACE}`, { path: '/socket.io', transports: ['websocket'] });
+    this.socket = io(`${base}${RTC_NAMESPACE}`, {
+      path: '/socket.io',
+      transports: ['websocket'],
+      auth: { token: this.token },
+    });
 
     this.socket.on('connect', () => {
       this.socket?.emit('rtc:join', {
         room: this.room,
-        userId: this.identity.userId,
-        name: this.identity.name,
         colorIndex: this.identity.colorIndex,
       });
     });
@@ -151,7 +154,8 @@ export class CallManager {
       this.leave();
     });
 
-    this.socket.on('connect_error', () => this.fail('Could not reach the call server.'));
+    this.socket.on('rtc:forbidden', () => this.fail('You no longer have access to this board.'));
+    this.socket.on('connect_error', () => this.fail('Sign in to join this call.'));
   }
 
   private createPeer(info: RtcPeer, initiator: boolean): void {

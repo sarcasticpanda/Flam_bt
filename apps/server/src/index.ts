@@ -6,11 +6,13 @@ import cors from 'cors';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { customAlphabet } from 'nanoid';
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from '@board/shared';
+import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, inviteSchema, type BoardMember } from '@board/shared';
 import { closeDb, store } from './db.js';
 import { flushAllRooms, joinRoom, roomStats } from './ws/yjs.js';
 import { registerSignaling } from './ws/signaling.js';
 import { aiRouter } from './routes/ai.js';
+import { authRouter } from './routes/auth.js';
+import { requireAuth, verifyToken } from './auth/jwt.js';
 
 const { PORT, CLIENT_ORIGIN } = ENV;
 
@@ -34,12 +36,21 @@ app.get('/healthz', (_req, res) => {
   res.json({ ok: true, rooms: roomStats(), uptime: Math.round(process.uptime()) });
 });
 
+// Accounts are deliberately optional.  The anonymous code-link experience remains useful for
+// quick collaboration, while an account adds a durable dashboard and invite management.
+app.use('/api/auth', authRouter);
+
 // ---------------------------------------------------------------------------
 // Boards
 // ---------------------------------------------------------------------------
 
-app.post('/api/boards', (req, res) => {
+app.post('/api/boards', requireAuth, (req, res) => {
   const title = typeof req.body?.title === 'string' ? req.body.title.slice(0, 120) : 'Untitled board';
+  const owner = store.userById(req.user!.sub);
+  if (!owner) {
+    res.status(401).json({ error: 'unauthorized', message: 'Session no longer valid.' });
+    return;
+  }
 
   // Retry on the astronomically unlikely collision rather than returning a 500.
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -47,41 +58,66 @@ app.post('/api/boards', (req, res) => {
     const viewCode = nanoCode();
     if (code === viewCode) continue;
     try {
-      const board = store.createBoard(nanoId(), code, viewCode, title);
+      const board = store.createBoard(nanoId(), code, viewCode, title, owner.id);
       res.json({ id: board.id, code: board.code, viewCode: board.view_code, title: board.title });
       return;
-    } catch {
+    } catch (error) {
+      if (!String(error).toLowerCase().includes('unique')) {
+        console.error('[boards] create failed:', error);
+        res.status(500).json({ error: 'database_write_failed', message: 'Could not create the board. Check the server log.' });
+        return;
+      }
       /* collision — try again */
     }
   }
   res.status(500).json({ error: 'could_not_allocate_code' });
 });
 
-app.get('/api/boards/:code', (req, res) => {
-  const found = store.findByAnyCode(req.params.code);
+/** Boards owned by or explicitly shared with the signed-in user. */
+app.get('/api/boards', requireAuth, (req, res) => {
+  const boards = store.boardsForUser(req.user!.sub).map((board) => ({
+    id: board.id,
+    code: board.code,
+    title: board.title,
+    createdAt: board.created_at,
+    updatedAt: board.updated_at,
+    role: store.isOwner(board, req.user!.sub) ? 'owner' : store.roleFor(board.id, req.user!.sub),
+  }));
+  res.json({ boards });
+});
+
+app.get('/api/boards/:code', requireAuth, (req, res) => {
+  const found = store.findByAnyCode(req.params.code ?? '');
   if (!found) {
     // A real 404 with a body the client can show inline, rather than an HTML error page.
     res.status(404).json({ error: 'not_found', message: 'No board with that code.' });
     return;
   }
-  const { board, readOnly } = found;
+  const { board } = found;
+  const role = store.accessFor(board, req.user!.sub);
+  if (!role) {
+    res.status(403).json({ error: 'not_a_member', message: 'Ask the board owner to invite your account.' });
+    return;
+  }
   res.json({
     id: board.id,
     code: board.code,
     title: board.title,
     createdAt: board.created_at,
     updatedAt: board.updated_at,
-    readOnly,
+    readOnly: role === 'viewer',
+    role,
   });
 });
 
-app.patch('/api/boards/:code', (req, res) => {
-  const found = store.findByAnyCode(req.params.code);
+app.patch('/api/boards/:code', requireAuth, (req, res) => {
+  const found = store.findByAnyCode(req.params.code ?? '');
   if (!found) {
     res.status(404).json({ error: 'not_found' });
     return;
   }
-  if (found.readOnly) {
+  const role = store.accessFor(found.board, req.user!.sub);
+  if (!role || role === 'viewer') {
     res.status(403).json({ error: 'read_only' });
     return;
   }
@@ -90,16 +126,76 @@ app.patch('/api/boards/:code', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/boards/:code/share', (req, res) => {
-  const found = store.findByAnyCode(req.params.code);
-  if (!found || found.readOnly) {
+app.get('/api/boards/:code/share', requireAuth, (req, res) => {
+  const found = store.findByAnyCode(req.params.code ?? '');
+  if (!found || found.readOnly || !store.isOwner(found.board, req.user!.sub)) {
     res.status(404).json({ error: 'not_found' });
     return;
   }
   res.json({ code: found.board.code, viewCode: found.board.view_code });
 });
 
-app.use('/api/ai', aiRouter);
+function ownedBoard(code: string, userId: string) {
+  const found = store.findByAnyCode(code);
+  if (!found || found.readOnly || !store.isOwner(found.board, userId)) return null;
+  return found.board;
+}
+
+/** List people invited to a board.  This information is visible only to its owner. */
+app.get('/api/boards/:code/members', requireAuth, (req, res) => {
+  const board = ownedBoard(req.params.code ?? '', req.user!.sub);
+  if (!board) {
+    res.status(404).json({ error: 'not_found' });
+    return;
+  }
+  const members: BoardMember[] = store.listMembers(board.id).map((member) => ({
+    userId: member.user_id,
+    email: member.email,
+    name: member.name,
+    role: member.role as BoardMember['role'],
+    pending: member.user_id === null,
+    invitedAt: member.invited_at,
+  }));
+  res.json({ members });
+});
+
+/** Invite an account holder now, or leave a pending invite for that email to claim on signup. */
+app.post('/api/boards/:code/members', requireAuth, (req, res) => {
+  const board = ownedBoard(req.params.code ?? '', req.user!.sub);
+  if (!board) {
+    res.status(404).json({ error: 'not_found' });
+    return;
+  }
+  const parsed = inviteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'invalid_input', message: 'Enter a valid email and role.' });
+    return;
+  }
+  if (parsed.data.email === req.user!.email) {
+    res.status(400).json({ error: 'cannot_invite_owner', message: 'You already own this board.' });
+    return;
+  }
+  const member = store.inviteMember(board.id, parsed.data.email, parsed.data.role);
+  res.status(201).json({ member });
+});
+
+app.delete('/api/boards/:code/members', requireAuth, (req, res) => {
+  const board = ownedBoard(req.params.code ?? '', req.user!.sub);
+  if (!board) {
+    res.status(404).json({ error: 'not_found' });
+    return;
+  }
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : undefined;
+  const email = typeof req.body?.email === 'string' ? req.body.email : undefined;
+  if (!userId && !email) {
+    res.status(400).json({ error: 'invalid_input', message: 'Choose a member to remove.' });
+    return;
+  }
+  store.removeMember(board.id, { userId, email });
+  res.json({ ok: true });
+});
+
+app.use('/api/ai', requireAuth, aiRouter);
 
 // ---------------------------------------------------------------------------
 // HTTP + WebSocket
@@ -131,16 +227,17 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
 
+  const token = url.searchParams.get('token');
+  const user = token ? verifyToken(token) : null;
   const found = store.findByAnyCode(code);
-  if (!found) {
+  const role = found && user ? store.accessFor(found.board, user.sub) : null;
+  if (!found || !role) {
     socket.destroy();
     return;
   }
 
   wss.handleUpgrade(request, socket, head, (ws) => {
-    // readOnly comes from WHICH CODE was used, resolved server-side. The client cannot
-    // promote itself to edit access by flipping a flag.
-    joinRoom(found.board.code, found.board.id, ws, found.readOnly);
+    joinRoom(found.board.code, found.board.id, ws, found.readOnly || role === 'viewer');
   });
 });
 

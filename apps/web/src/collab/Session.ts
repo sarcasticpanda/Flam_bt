@@ -39,8 +39,14 @@ export class Session {
     identity: Identity,
     readonly readOnly: boolean,
     wsUrl: string,
+    token: string,
   ) {
-    this.provider = new WebsocketProvider(wsUrl, code, doc.doc, { connect: true });
+    this.provider = new WebsocketProvider(wsUrl, code, doc.doc, {
+      connect: true,
+      // y-websocket serializes these as query parameters after the room path. The server verifies
+      // this token during the upgrade, before it sends document data or accepts edits.
+      params: { token },
+    });
 
     // Claim a colour nobody else in the room is using.
     const taken = new Set<number>();
