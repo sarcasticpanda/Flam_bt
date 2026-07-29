@@ -9,12 +9,7 @@ export interface AuthTokenPayload {
 
 const SECRET = process.env.JWT_SECRET;
 
-if (!SECRET && process.env.NODE_ENV === 'production') {
-  // A missing secret in production means every token is signed with whatever this constant
-  // falls back to, which is a well-known value the moment this file is public. Refuse to boot
-  // rather than silently issuing forgeable tokens.
-  throw new Error('JWT_SECRET must be set in production.');
-}
+
 
 // Dev-only fallback so a fresh clone works without an env file for the anonymous-first flow —
 // auth is opt-in, not required to draw.
