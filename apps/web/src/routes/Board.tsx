@@ -16,6 +16,9 @@ import { StylePanel } from '../components/StylePanel';
 import { ShortcutsOverlay } from '../components/ShortcutsOverlay';
 import { EmptyHint } from '../components/EmptyHint';
 import { PresenceBar } from '../components/PresenceBar';
+import { CommandBar } from '../components/CommandBar';
+import { runAIFeature } from '../features/ai/run';
+import type { AIFeatureId } from '@board/shared';
 import type { StyleDefaults, ToolId } from '../canvas/tools/types';
 
 export function Board({ code, onLeave }: { code: string; onLeave: () => void }) {
@@ -28,6 +31,11 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
 
   const [hudVisible, setHudVisible] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [editing, setEditing] = useState<Shape | null>(null);
   const [theme, setTheme] = useState<ThemeName>(
     () => (document.documentElement.dataset.theme as ThemeName) ?? 'paper',
@@ -156,6 +164,39 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
     };
   }, []);
 
+  const handleRunAI = useCallback(
+    async (feature: AIFeatureId, prompt: string) => {
+      if (!handles || !meta) return;
+      setAiBusy(true);
+      setAiError(null);
+      setAiStatus('Thinking…');
+
+      const result = await runAIFeature(feature, prompt, {
+        doc: handles.doc,
+        engine: handles.engine,
+        room: meta.code,
+        userId: identityRef.current.userId,
+        selection: handles.tools.getSelection(),
+      });
+
+      setAiBusy(false);
+      if (!result.ok) {
+        setAiError(result.message);
+        setAiStatus(null);
+        return;
+      }
+
+      // Name the provider. When the answer came from the offline `demo` generator that must be
+      // visible — presenting it as a live model result would be dishonest.
+      const via = result.provider === 'demo' ? 'Demo mode (no live model)' : `via ${result.provider}`;
+      setAiStatus(`${result.message}  ·  ${via}${result.cached ? ' · cached' : ` · ${result.ms}ms`}`);
+      setAiError(null);
+      // Close on success so the result is visible; failures keep the bar open to retry.
+      setTimeout(() => setAiOpen(false), 900);
+    },
+    [handles, meta],
+  );
+
   const applyTheme = useCallback((next: ThemeName) => {
     document.documentElement.dataset.theme = next;
     localStorage.setItem('board:theme', next);
@@ -180,6 +221,11 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
       if (e.key === '?') {
         e.preventDefault();
         setShortcutsOpen((v) => !v);
+      }
+      if (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setAiOpen((v) => !v);
+        setAiError(null);
       }
       if (e.key === 'T' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
         const i = THEMES.indexOf((document.documentElement.dataset.theme as ThemeName) ?? 'paper');
@@ -262,6 +308,16 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
       )}
 
       {shapeCount === 0 && !meta?.readOnly && <EmptyHint />}
+
+      <CommandBar
+        open={aiOpen}
+        busy={aiBusy}
+        error={aiError}
+        status={aiStatus}
+        selectionCount={selectionCount}
+        onClose={() => setAiOpen(false)}
+        onRun={handleRunAI}
+      />
 
       <PerfHUD engine={handles?.engine ?? null} visible={hudVisible} />
       <ZoomControls engine={handles?.engine ?? null} hudVisible={hudVisible} />
