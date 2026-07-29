@@ -101,7 +101,8 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
       setSelectionCount(h.tools.getSelection().length);
       setStyle({ ...h.tools.style });
     };
-    h.doc.shapesMap.observe(() => setShapeCount(h.engine.shapes.size));
+    h.doc.onShapeCount = setShapeCount;
+    setShapeCount(h.engine.shapes.size);
 
     (window as unknown as { __board: unknown }).__board = {
       shapeCount: () => h.engine.shapes.size,

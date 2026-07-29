@@ -29,6 +29,15 @@ export class BoardDoc {
   private engine: Engine | null = null;
   private unobserve: (() => void) | null = null;
 
+  /**
+   * Fired after EVERY document change, local or remote, with the resulting shape count.
+   *
+   * Chrome needs this to know when the board stops being empty. Observing the shapes map
+   * directly from React is unreliable — a top-level observer misses nested field changes, and
+   * reading engine.shapes.size from inside it races the engine's own observer.
+   */
+  onShapeCount: ((count: number) => void) | null = null;
+
   constructor(readonly userId: string) {
     this.localOrigin = { userId, source: 'user' };
     this.aiOrigin = { userId, source: 'ai' };
@@ -94,10 +103,16 @@ export class BoardDoc {
         }
       }
       engine.markDirty();
+      // Emitted AFTER the engine store is updated, so the count is always accurate.
+      this.onShapeCount?.(engine.shapes.size);
     };
 
     this.shapesMap.observeDeep(observer);
     this.unobserve = () => this.shapesMap.unobserveDeep(observer);
+
+    // Seed the initial count — a board loaded from persistence already has shapes, and without
+    // this the empty-state hint renders on top of them until the first edit.
+    this.onShapeCount?.(engine.shapes.size);
   }
 
   destroy(): void {
