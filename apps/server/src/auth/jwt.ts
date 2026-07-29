@@ -1,5 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import type { Request, Response, NextFunction } from 'express';
 
 export interface AuthTokenPayload {
@@ -20,20 +22,34 @@ if (!SECRET && process.env.NODE_ENV === 'production') {
 }
 
 /**
- * Dev fallback is RANDOM PER BOOT, never a hardcoded constant.
+ * Dev fallback: a RANDOM secret, generated once and cached in a gitignored file.
  *
- * A literal committed here is a published signing key: anyone can mint a token for any user id,
- * and user ids are not secret — they ride on Yjs awareness to every peer on a board. That was a
- * real, verified full-account-impersonation bypass, not a theoretical one.
+ * Never a hardcoded constant. A literal committed here is a published signing key — anyone can
+ * mint a token for any user id, and user ids are not secret (they ride on Yjs awareness to every
+ * peer on a board). That was a real, verified account-impersonation bypass, not a theoretical one.
  *
- * The cost of randomising is that tokens stop working across a dev server restart. That is a
- * mildly annoying re-login locally, and it makes the insecure path impossible to deploy by
- * accident.
+ * Caching to disk rather than regenerating per boot keeps local sessions alive across the
+ * restarts that `tsx watch` does constantly, while still never putting the value in the repo.
  */
-const EFFECTIVE_SECRET = SECRET ?? randomBytes(32).toString('hex');
+function devSecret(): string {
+  const file = resolve(process.env.SQLITE_PATH ? dirname(process.env.SQLITE_PATH) : './data', '.dev-jwt-secret');
+  try {
+    if (existsSync(file)) return readFileSync(file, 'utf8').trim();
+    const generated = randomBytes(32).toString('hex');
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, generated, { mode: 0o600 });
+    return generated;
+  } catch {
+    // Read-only filesystem: fall back to per-boot. Sessions reset on restart, which is
+    // strictly better than a shared known value.
+    return randomBytes(32).toString('hex');
+  }
+}
+
+const EFFECTIVE_SECRET = SECRET ?? devSecret();
 
 if (!SECRET) {
-  console.warn('[auth] JWT_SECRET not set — using a random per-boot secret. Sessions reset on restart.');
+  console.warn('[auth] JWT_SECRET not set — using a local dev secret from ./data/.dev-jwt-secret');
 }
 
 const EXPIRY = '30d';
