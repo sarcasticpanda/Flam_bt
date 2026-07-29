@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { customAlphabet } from 'nanoid';
 import { loginSchema, signupSchema, type AuthResponse, type PublicUser } from '@board/shared';
-import { store } from '../db.js';
+import { store } from '../db/index.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { requireAuth, signToken } from '../auth/jwt.js';
 
@@ -23,7 +23,7 @@ authRouter.post('/signup', async (req, res) => {
   }
   const { email, password, name } = parsed.data;
 
-  if (store.userByEmail(email)) {
+  if (await store.userByEmail(email)) {
     // Deliberately specific: "that email is taken" is more useful than a generic failure, and
     // this is a signup form, not a login form — it does not leak whether a stranger has an
     // account the way the same message would on a login endpoint.
@@ -32,7 +32,7 @@ authRouter.post('/signup', async (req, res) => {
   }
 
   const passwordHash = await hashPassword(password);
-  const user = store.createUser(nanoId(), email, passwordHash, name);
+  const user = await store.createUser(nanoId(), email, passwordHash, name);
   const token = signToken({ sub: user.id, email: user.email, name: user.name });
 
   const body: AuthResponse = { token, user: toPublicUser(user) };
@@ -47,7 +47,7 @@ authRouter.post('/login', async (req, res) => {
   }
   const { email, password } = parsed.data;
 
-  const user = store.userByEmail(email);
+  const user = await store.userByEmail(email);
   // Same message whether the email is unknown or the password is wrong — telling them apart
   // would let an attacker enumerate which emails have accounts.
   const message = 'That email and password do not match.';
@@ -67,8 +67,8 @@ authRouter.post('/login', async (req, res) => {
   res.json(body);
 });
 
-authRouter.get('/me', requireAuth, (req, res) => {
-  const user = store.userById(req.user!.sub);
+authRouter.get('/me', requireAuth, async (req, res) => {
+  const user = await store.userById(req.user!.sub);
   if (!user) {
     res.status(401).json({ error: 'unauthorized', message: 'Session no longer valid.' });
     return;

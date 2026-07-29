@@ -1,7 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io';
 import type { Server as HttpServer } from 'node:http';
 import { MAX_CALL_PEERS, RTC_NAMESPACE, type RtcPeer } from '@board/shared';
-import { store } from '../db.js';
+import { store } from '../db/index.js';
 import { verifyToken, type AuthTokenPayload } from '../auth/jwt.js';
 
 /**
@@ -34,10 +34,10 @@ export function registerSignaling(server: HttpServer, clientOrigin: string): voi
     let joinedRoom: string | null = null;
     const user = socket.data.user as AuthTokenPayload;
 
-    socket.on('rtc:join', ({ room, colorIndex }) => {
+    socket.on('rtc:join', async ({ room, colorIndex }) => {
       if (typeof room !== 'string' || !room) return;
-      const found = store.findByAnyCode(room);
-      if (!found || !store.accessFor(found.board, user.sub)) {
+      const found = await store.findByAnyCode(room);
+      if (!found || !(await store.accessFor(found.board, user.sub))) {
         socket.emit('rtc:forbidden');
         return;
       }

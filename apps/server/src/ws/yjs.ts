@@ -5,7 +5,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import type { WebSocket } from 'ws';
 import { PERSIST_IDLE_MS, PERSIST_MAX_MS } from '@board/shared';
-import { store } from '../db.js';
+import { store } from '../db/index.js';
 
 /**
  * y-websocket server, implemented directly rather than pulled from `y-websocket/bin/utils`.
@@ -33,6 +33,9 @@ class Room {
   private firstDirtyAt = 0;
   private destroyed = false;
 
+  /** Resolves once the persisted document has been applied. Awaited before the first socket. */
+  readonly ready: Promise<void>;
+
   constructor(
     readonly code: string,
     readonly boardId: string,
@@ -40,8 +43,11 @@ class Room {
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.awareness.setLocalState(null); // the server is not a participant
 
-    const persisted = store.loadDoc(boardId);
-    if (persisted) Y.applyUpdate(this.doc, persisted, 'persistence');
+    // A constructor cannot await, and the store is async now that Postgres is an option.
+    // `ready` is awaited by joinRoom before any socket is attached, so a client can never
+    // complete the sync handshake against an empty document and then receive the real board as
+    // a surprise update — which would look like the board briefly losing all its content.
+    this.ready = this.load();
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       this.broadcastSync(update, origin);
@@ -97,20 +103,31 @@ class Room {
     if (this.persistTimer) clearTimeout(this.persistTimer);
 
     if (now - this.firstDirtyAt >= PERSIST_MAX_MS) {
-      this.persist();
+      void this.persist();
       return;
     }
-    this.persistTimer = setTimeout(() => this.persist(), PERSIST_IDLE_MS);
+    this.persistTimer = setTimeout(() => void this.persist(), PERSIST_IDLE_MS);
   }
 
-  persist(): void {
+  private async load(): Promise<void> {
+    try {
+      const persisted = await store.loadDoc(this.boardId);
+      if (persisted) Y.applyUpdate(this.doc, persisted, 'persistence');
+    } catch (err) {
+      // Serving an empty board is bad; refusing to serve it at all is worse. Log loudly and
+      // let people work — the next persist will write whatever they produce.
+      console.error(`[yjs] could not load ${this.code}:`, err);
+    }
+  }
+
+  async persist(): Promise<void> {
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
     this.firstDirtyAt = 0;
     try {
-      store.saveDoc(this.boardId, Y.encodeStateAsUpdate(this.doc));
+      await store.saveDoc(this.boardId, Y.encodeStateAsUpdate(this.doc));
     } catch (err) {
       console.error(`[yjs] persist failed for ${this.code}:`, err);
     }
@@ -208,8 +225,10 @@ class Room {
     }
   }
 
-  destroy(): void {
-    this.persist();
+  async destroy(): Promise<void> {
+    // Await the final write — a room is only torn down after its last peer leaves, and losing
+    // that flush loses everything since the previous debounce fired.
+    await this.persist();
     this.destroyed = true;
     this.awareness.destroy();
     this.doc.destroy();
@@ -230,13 +249,16 @@ export function getRoom(code: string, boardId: string): Room {
   return room;
 }
 
-export function joinRoom(
+export async function joinRoom(
   code: string,
   boardId: string,
   socket: WebSocket,
   readOnly: boolean,
-): void {
+): Promise<void> {
   const room = getRoom(code, boardId);
+  // Wait for the persisted document before attaching the socket, or the client syncs against
+  // an empty doc and the board appears to load blank.
+  await room.ready;
   room.addConnection(socket, readOnly);
   console.log(`[yjs] ${code}: +1 peer (${room.size} total)${readOnly ? ' [view-only]' : ''}`);
 
@@ -259,7 +281,7 @@ export function joinRoom(
     if (room.size === 0) {
       setTimeout(() => {
         if (room.size === 0 && rooms.get(code) === room) {
-          room.destroy();
+          void room.destroy();
           rooms.delete(code);
           console.log(`[yjs] room ${code} closed and persisted`);
         }
@@ -269,8 +291,8 @@ export function joinRoom(
 }
 
 /** Flush every live room. Called on SIGTERM so a deploy never loses the last few seconds. */
-export function flushAllRooms(): void {
-  for (const room of rooms.values()) room.persist();
+export async function flushAllRooms(): Promise<void> {
+  await Promise.all([...rooms.values()].map((room) => room.persist()));
   console.log(`[yjs] flushed ${rooms.size} room(s)`);
 }
 
