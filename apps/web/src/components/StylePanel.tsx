@@ -57,8 +57,18 @@ export function StylePanel({
 
   return (
     <div
-      className="surface absolute top-1/2 left-4 z-40 w-[204px] -translate-y-1/2 overflow-y-auto p-3"
-      style={{ maxHeight: 'calc(100vh - 140px)' }}
+      className="surface absolute left-4 z-40 w-[204px] overflow-y-auto p-3"
+      // Anchored between top and bottom insets rather than vertically centered with a fixed
+      // max-height: centering let this panel's scrollable content grow tall enough to reach
+      // down into the bottom-left corner stack (perf HUD + zoom + call button) and visually
+      // overlap it on anything shorter than a very tall viewport. Setting both `top` and
+      // `bottom` on an absolutely positioned element makes the browser derive its height from
+      // the space actually available, so it can never encroach on the reserved corner region.
+      //
+      // 340px covers the corner stack's worst case (HUD open + zoom controls + call join
+      // buttons, measured at ~317px) plus a margin — verified against the live layout, not
+      // guessed, since an under-estimate here silently reintroduces the same overlap it fixes.
+      style={{ top: 84, bottom: 340 }}
     >
       <div className="mb-2.5 leading-snug" style={{ color: 'var(--chrome-fg-dim)', fontSize: 11 }}>
         {selectionCount > 0

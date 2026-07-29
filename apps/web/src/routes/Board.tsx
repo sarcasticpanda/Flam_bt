@@ -17,7 +17,8 @@ import { ShortcutsOverlay } from '../components/ShortcutsOverlay';
 import { EmptyHint } from '../components/EmptyHint';
 import { PresenceBar } from '../components/PresenceBar';
 import { CommandBar } from '../components/CommandBar';
-import { CallPanel } from '../components/CallPanel';
+import { CallPanel, CallJoinButtons } from '../components/CallPanel';
+import { BottomLeftStack } from '../components/BottomLeftStack';
 import { CallManager, type CallParticipant } from '../features/call/CallManager';
 import { runAIFeature } from '../features/ai/run';
 import { findFreeSpace } from '../features/ai/layout';
@@ -415,19 +416,30 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
         onRun={handleRunAI}
       />
 
+      {/* The in-call floating tile panel is independently draggable, so it stays outside the
+          fixed corner stack below — only its idle "Join call" buttons live in the stack. */}
       {!meta?.readOnly && (
         <CallPanel
           call={callRef.current}
           participants={callParticipants}
           colorFor={(i) => sessionRef.current?.colorFor(i) ?? '#888'}
-          onJoin={handleJoinCall}
           onLeave={handleLeaveCall}
           version={callVersion}
         />
       )}
 
-      <PerfHUD engine={handles?.engine ?? null} visible={hudVisible} />
-      <ZoomControls engine={handles?.engine ?? null} hudVisible={hudVisible} />
+      {/*
+        Every panel that anchors to the bottom-left corner goes through ONE stack so they can
+        never silently overlap and eat each other's clicks — which is exactly what happened when
+        the perf HUD, zoom controls, and the call join buttons each independently claimed
+        `bottom-4 left-4`. Order here is bottom-to-top: index 0 sits flush with the corner.
+      */}
+      <BottomLeftStack>
+        <PerfHUD engine={handles?.engine ?? null} visible={hudVisible} />
+        <ZoomControls engine={handles?.engine ?? null} />
+        {!meta?.readOnly && <CallJoinButtons call={callRef.current} onJoin={handleJoinCall} />}
+      </BottomLeftStack>
+
       <DevSeeder engine={handles?.engine ?? null} doc={handles?.doc ?? null} />
       <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>

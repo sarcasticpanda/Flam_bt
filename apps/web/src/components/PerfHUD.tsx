@@ -27,7 +27,7 @@ export function PerfHUD({ engine, visible }: { engine: Engine | null; visible: b
 
   return (
     <div
-      className="surface pointer-events-none absolute bottom-4 left-4 z-40 px-3 py-2.5"
+      className="surface pointer-events-none px-3 py-2.5"
       style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', lineHeight: 1.65, minWidth: 172 }}
     >
       <Row label="fps" value={stats.idle ? 'idle' : String(stats.fps)} color={fpsColor} />

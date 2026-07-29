@@ -5,7 +5,57 @@ import {
 import type { CallManager, CallParticipant } from '../features/call/CallManager';
 
 /**
- * Floating call panel.
+ * Idle-state "Join call" buttons — lives in the fixed bottom-left chrome stack alongside the
+ * perf HUD and zoom controls, so it never fights them for the same corner.
+ */
+export function CallJoinButtons({
+  call,
+  onJoin,
+}: {
+  call: CallManager | null;
+  onJoin: (withVideo: boolean) => void;
+}) {
+  const state = call?.state ?? 'idle';
+  if (state === 'in-call' || state === 'connecting') return null;
+
+  return (
+    <div className="flex gap-2">
+      <button
+        onClick={() => onJoin(false)}
+        className="surface flex items-center gap-2 px-3.5 transition-colors hover:bg-[var(--chrome-raised)]"
+        style={{ height: 44, color: 'var(--chrome-fg)', fontSize: 13 }}
+        aria-label="Join call with audio"
+      >
+        <Phone size={16} strokeWidth={1.75} />
+        Join call
+      </button>
+      <button
+        onClick={() => onJoin(true)}
+        className="surface grid place-items-center transition-colors hover:bg-[var(--chrome-raised)]"
+        style={{ height: 44, width: 44, color: 'var(--chrome-fg)' }}
+        title="Join with video"
+        aria-label="Join call with video"
+      >
+        <Video size={16} strokeWidth={1.75} />
+      </button>
+      {call?.error && (
+        <div
+          className="surface flex max-w-xs items-center gap-2 px-3"
+          style={{ height: 44, color: 'var(--danger)', fontSize: 12 }}
+          role="alert"
+        >
+          <AlertCircle size={14} strokeWidth={2} className="shrink-0" />
+          {call.error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Floating call panel — the in-call/connecting view only. Draggable and independently
+ * positioned rather than living in the corner stack, because unlike the HUD or zoom controls
+ * it needs to move out of the way of whatever you're drawing.
  *
  * Draggable and compact rather than a docked sidebar, because the canvas must stay usable
  * during a call — the call is a layer over the workspace, not a mode that replaces it.
@@ -17,14 +67,12 @@ export function CallPanel({
   call,
   participants,
   colorFor,
-  onJoin,
   onLeave,
   version,
 }: {
   call: CallManager | null;
   participants: CallParticipant[];
   colorFor: (colorIndex: number) => string;
-  onJoin: (withVideo: boolean) => void;
   onLeave: () => void;
   /** Bumped by the manager to force a re-render on stream/mute changes. */
   version: number;
@@ -58,40 +106,7 @@ export function CallPanel({
   const state = call?.state ?? 'idle';
   const inCall = state === 'in-call' || state === 'connecting';
 
-  if (!inCall) {
-    return (
-      <div className="absolute bottom-4 left-4 z-40 flex gap-2" style={{ marginBottom: 0 }}>
-        <button
-          onClick={() => onJoin(false)}
-          className="surface flex items-center gap-2 px-3.5 transition-colors hover:bg-[var(--chrome-raised)]"
-          style={{ height: 44, color: 'var(--chrome-fg)', fontSize: 13 }}
-          aria-label="Join call with audio"
-        >
-          <Phone size={16} strokeWidth={1.75} />
-          Join call
-        </button>
-        <button
-          onClick={() => onJoin(true)}
-          className="surface grid place-items-center transition-colors hover:bg-[var(--chrome-raised)]"
-          style={{ height: 44, width: 44, color: 'var(--chrome-fg)' }}
-          title="Join with video"
-          aria-label="Join call with video"
-        >
-          <Video size={16} strokeWidth={1.75} />
-        </button>
-        {call?.error && (
-          <div
-            className="surface flex max-w-xs items-center gap-2 px-3"
-            style={{ height: 44, color: 'var(--danger)', fontSize: 12 }}
-            role="alert"
-          >
-            <AlertCircle size={14} strokeWidth={2} className="shrink-0" />
-            {call.error}
-          </div>
-        )}
-      </div>
-    );
-  }
+  if (!inCall) return null;
 
   const localStream = call?.getLocalStream() ?? null;
 

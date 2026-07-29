@@ -3,11 +3,10 @@ import { Maximize2, Minus, Plus } from 'lucide-react';
 import type { Engine } from '@board/canvas-engine';
 
 /**
- * Zoom cluster, bottom-left. Sits above the perf HUD when the HUD is open so the two never
- * overlap — a floating-chrome layout has to be explicit about stacking or it collides on
- * short viewports.
+ * Zoom cluster. Positioning is owned by BottomLeftStack, which measures every sibling's real
+ * height and stacks them without collision — this component only renders its own content.
  */
-export function ZoomControls({ engine, hudVisible }: { engine: Engine | null; hudVisible: boolean }) {
+export function ZoomControls({ engine }: { engine: Engine | null }) {
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
@@ -39,11 +38,7 @@ export function ZoomControls({ engine, hudVisible }: { engine: Engine | null; hu
   };
 
   return (
-    <div
-      className="surface absolute left-4 z-40 flex items-center gap-0.5 p-1"
-      /* HUD is ~205px tall with all rows; 216 clears it with a 12px gap. */
-      style={{ bottom: hudVisible ? 216 : 16 }}
-    >
+    <div className="surface flex items-center gap-0.5 p-1">
       <IconButton label="Zoom out" onClick={() => zoomBy(1 / 1.2)}>
         <Minus size={16} strokeWidth={1.75} />
       </IconButton>
