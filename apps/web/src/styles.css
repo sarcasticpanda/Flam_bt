@@ -1,0 +1,153 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   THE———BOARD design tokens.
+
+   THE SIGNATURE RULE: the interface is monochrome. Every saturated colour on
+   screen belongs to a human. There is no brand accent colour — a primary button
+   is ink on paper or paper on ink. Emphasis comes from weight and contrast,
+   never hue.
+
+   A theme changes the NEUTRAL RAMP ONLY. Participant hues are invariant, because
+   "Ana is the red one" has to survive a theme switch or presence is a lie.
+   =========================================================================== */
+
+:root {
+  /* 12 participant hues — IDENTICAL in every theme. Never override these. */
+  --p1: 12;   --p2: 38;   --p3: 85;   --p4: 145;
+  --p5: 178;  --p6: 220;  --p7: 258;  --p8: 292;
+  --p9: 322;  --p10: 350; --p11: 55;  --p12: 165;
+
+  /* Themes override only lightness + chroma, which is what keeps all 12 legible
+     on surfaces ranging from #FBFAF7 to #0C1A2B. */
+  --p-l: 52%;
+  --p-c: 0.15;
+
+  --danger: #C4442E;
+  --success: #2F7D5C;
+
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-surface: 14px;
+
+  --shadow-surface: 0 8px 28px rgba(0, 0, 0, 0.18);
+
+  --font-display: 'Bricolage Grotesque', 'Geist Sans', system-ui, sans-serif;
+  --font-ui: 'Geist Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+[data-theme='paper'] {
+  --canvas-bg: #FBFAF7;  --canvas-ink: #14161A;  --canvas-grid: #D8D5CD;
+  --chrome-bg: #14161A;  --chrome-fg: #FBFAF7;   --chrome-fg-dim: #8A909E;
+  --chrome-raised: #23272E;
+  --chrome-hairline: rgba(251, 250, 247, 0.10);
+  --focus-ring: #14161A;
+  --p-l: 52%; --p-c: 0.15;
+}
+
+[data-theme='ink'] {
+  --canvas-bg: #16181C;  --canvas-ink: #E8E6E1;  --canvas-grid: #2B2F36;
+  --chrome-bg: #0E1013;  --chrome-fg: #F2F0EB;   --chrome-fg-dim: #8A909E;
+  --chrome-raised: #1C1F25;
+  --chrome-hairline: rgba(242, 240, 235, 0.10);
+  --focus-ring: #F2F0EB;
+  --p-l: 72%; --p-c: 0.13;
+}
+
+[data-theme='slate'] {
+  --canvas-bg: #1A1D23;  --canvas-ink: #EEF1F5;  --canvas-grid: #2F343D;
+  --chrome-bg: #0B0D10;  --chrome-fg: #FFFFFF;   --chrome-fg-dim: #99A1AE;
+  --chrome-raised: #21262E;
+  --chrome-hairline: rgba(255, 255, 255, 0.12);
+  --focus-ring: #FFFFFF;
+  --p-l: 75%; --p-c: 0.14;
+}
+
+[data-theme='blueprint'] {
+  --canvas-bg: #0C1A2B;  --canvas-ink: #D6E8F5;  --canvas-grid: #1E4B6E;
+  --chrome-bg: #071320;  --chrome-fg: #DCEBF7;   --chrome-fg-dim: #7C9BB5;
+  --chrome-raised: #102C45;
+  --chrome-hairline: rgba(120, 190, 235, 0.14);
+  --focus-ring: #9CD2F5;
+  --p-l: 74%; --p-c: 0.15;
+}
+
+[data-theme='contrast'] {
+  --canvas-bg: #FFFFFF;  --canvas-ink: #000000;  --canvas-grid: #A8A8A8;
+  --chrome-bg: #000000;  --chrome-fg: #FFFFFF;   --chrome-fg-dim: #D4D4D4;
+  --chrome-raised: #1A1A1A;
+  --chrome-hairline: rgba(255, 255, 255, 0.40);
+  --focus-ring: #FFFFFF;
+  --p-l: 62%; --p-c: 0.19;
+}
+
+/* --------------------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--canvas-bg);
+  color: var(--canvas-ink);
+  -webkit-font-smoothing: antialiased;
+  /* The canvas owns gestures; browser overscroll and pinch-zoom fight it constantly. */
+  overscroll-behavior: none;
+}
+
+/* Visible focus on every interactive element. Non-negotiable. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+
+/* --------------------------------------------------------------------------- */
+
+@utility surface {
+  background: color-mix(in srgb, var(--chrome-bg) 96%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--chrome-hairline);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow-surface);
+  color: var(--chrome-fg);
+}
+
+@utility mono-code {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Participant colour, resolved for the active theme. */
+.p-color {
+  color: oklch(var(--p-l) var(--p-c) var(--hue));
+}
+
+.p-bg {
+  background: oklch(var(--p-l) var(--p-c) var(--hue));
+}
+
+/* --------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

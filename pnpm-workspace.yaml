@@ -1,0 +1,6 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# better-sqlite3 is deliberately absent: we use node:sqlite (built into Node 22+),
+# which avoids native compilation entirely — a real time sink on Windows.

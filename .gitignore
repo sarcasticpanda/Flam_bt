@@ -1,0 +1,46 @@
+# --- secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- deps ---
+node_modules/
+.pnpm-store/
+
+# --- build output ---
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# --- runtime data ---
+*.db
+*.sqlite
+*.sqlite3
+data/
+uploads/
+
+# --- logs ---
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# --- editor / os ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- test artifacts ---
+playwright-report/
+test-results/
+coverage/
+.playwright/
+
+# --- deploy ---
+.vercel
+.netlify
+.playwright-mcp/

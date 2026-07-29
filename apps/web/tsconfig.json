@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "paths": {
+      "@board/shared": ["../../packages/shared/src/index.ts"],
+      "@board/canvas-engine": ["../../packages/canvas-engine/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

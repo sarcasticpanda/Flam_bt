@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme="paper">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>THE———BOARD</title>
+    <meta name="description" content="Real-time collaborative canvas. Draw, talk, and let the AI clean it up." />
+    <script>
+      // Theme is applied BEFORE first paint. Doing this in a React effect produces a visible
+      // flash of the wrong theme on every load — see docs/05-DESIGN-SYSTEM.md.
+      (function () {
+        try {
+          var stored = localStorage.getItem('board:theme');
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.dataset.theme = stored || (prefersDark ? 'ink' : 'paper');
+        } catch (e) {
+          document.documentElement.dataset.theme = 'paper';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

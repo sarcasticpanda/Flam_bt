@@ -1,0 +1,11 @@
+export { Camera, clamp } from './Camera.js';
+export { SpatialIndex } from './SpatialIndex.js';
+export { Engine } from './Engine.js';
+export type { EngineStats, OverlayPainter } from './Engine.js';
+export * from './geometry.js';
+export * from './smoothing.js';
+export * from './theme.js';
+export { drawShape, setImageLoadCallback } from './renderers.js';
+export type { RenderCtx } from './renderers.js';
+export { seedShapes } from './seed.js';
+export type { SeedOptions } from './seed.js';
