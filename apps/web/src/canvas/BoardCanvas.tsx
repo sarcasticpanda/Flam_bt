@@ -68,7 +68,14 @@ export function BoardCanvas({ userId, onReady, onEditText }: Props) {
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      container.setPointerCapture(e.pointerId);
+      // Guarded: setPointerCapture throws for a pointer the browser no longer considers active
+      // (stale stylus, some touch sequences). Unguarded, that exception aborts the handler and
+      // the tool never sees pointerDown — drawing dies silently with nothing in the console.
+      try {
+        container.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture is an optimisation, not a requirement — carry on without it */
+      }
       // Space+drag and middle-drag pan from ANY tool. Losing pan while drawing is maddening.
       if (e.button === 1 || (e.button === 0 && spaceHeld)) {
         panning = true;
@@ -96,7 +103,11 @@ export function BoardCanvas({ userId, onReady, onEditText }: Props) {
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      if (container.hasPointerCapture(e.pointerId)) container.releasePointerCapture(e.pointerId);
+      try {
+        if (container.hasPointerCapture(e.pointerId)) container.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
       if (panning) {
         panning = false;
         engine.setInteracting(false);

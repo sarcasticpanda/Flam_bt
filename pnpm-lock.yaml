@@ -35,6 +35,9 @@ importers:
       lib0:
         specifier: ^0.2.99
         version: 0.2.117
+      nanoid:
+        specifier: ^5.1.16
+        version: 5.1.16
       socket.io:
         specifier: ^4.8.1
         version: 4.8.3

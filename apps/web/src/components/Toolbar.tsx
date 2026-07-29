@@ -42,12 +42,30 @@ export function Toolbar({
   active: ToolId;
   onSelect: (id: ToolId) => void;
 }) {
+  const activeDef = TOOLS.find((t) => t.id === active);
+
   return (
     <div
       className="surface absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-0.5 p-1.5"
       role="toolbar"
       aria-label="Drawing tools"
     >
+      {/* Always name the active tool. Icon-only toolbars leave people unsure what mode they are
+          in, and "why can't I draw?" is almost always "you're still on Select". */}
+      <span
+        className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded px-2 py-0.5 whitespace-nowrap"
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: 'var(--chrome-fg-dim)',
+          background: 'color-mix(in srgb, var(--chrome-bg) 88%, transparent)',
+        }}
+      >
+        {activeDef?.label ?? active} · {activeDef?.key}
+      </span>
+
       {TOOLS.map((tool, i) => (
         <div key={tool.id} className="flex items-center">
           {/* Separator between navigation, freehand, and shape groups. */}
