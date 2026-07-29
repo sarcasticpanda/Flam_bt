@@ -44,3 +44,6 @@ coverage/
 .vercel
 .netlify
 .playwright-mcp/
+
+# Read-only reference clones — never edited, never shipped
+_refs/
