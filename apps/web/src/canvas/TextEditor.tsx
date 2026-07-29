@@ -63,6 +63,24 @@ export function TextEditor({
     onCommit(ref.current?.textContent ?? '');
   };
 
+  /**
+   * Commit when the pointer goes down anywhere outside the editor.
+   *
+   * `onBlur` alone is not enough: the canvas container is a plain div with no tabindex, so
+   * clicking it never moves focus and never fires blur. The editor would stay open and the
+   * typed text would be silently discarded — you type a sticky note, click away, and lose it.
+   */
+  useEffect(() => {
+    const onDownOutside = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) commit();
+    };
+    // Capture phase, so this runs before the canvas tool handles the same pointerdown and
+    // possibly starts a new shape.
+    document.addEventListener('pointerdown', onDownOutside, true);
+    return () => document.removeEventListener('pointerdown', onDownOutside, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { camera } = engine;
   const topLeft = camera.worldToScreen(shape.x, shape.y);
   const fontSize =
