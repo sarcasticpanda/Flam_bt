@@ -20,6 +20,11 @@ import { CommandBar } from '../components/CommandBar';
 import { CallPanel } from '../components/CallPanel';
 import { CallManager, type CallParticipant } from '../features/call/CallManager';
 import { runAIFeature } from '../features/ai/run';
+import { findFreeSpace } from '../features/ai/layout';
+import { TemplateGallery } from '../components/TemplateGallery';
+import { BoardMenu } from '../components/BoardMenu';
+import type { TemplateDef } from '../features/templates/templates';
+import { exportJSON, exportPNG, importJSON } from '../features/export/exportBoard';
 import type { AIFeatureId } from '@board/shared';
 import type { StyleDefaults, ToolId } from '../canvas/tools/types';
 
@@ -34,6 +39,7 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
   const [hudVisible, setHudVisible] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -203,6 +209,27 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
     [handles, meta],
   );
 
+  const handleInsertTemplate = useCallback(
+    (t: TemplateDef) => {
+      if (!handles) return;
+      const origin = findFreeSpace(handles.engine, t.size.w, t.size.h);
+      const zs = handles.doc.nextZ(48);
+      const shapes = t.build(origin, (i) => zs[i] ?? `t${i}`, identityRef.current.userId);
+
+      // One transaction: a template inserts and undoes as a single step.
+      handles.doc.addMany(shapes);
+      handles.engine.camera.fitTo(
+        { x: origin.x, y: origin.y, w: t.size.w, h: t.size.h },
+        handles.engine.width,
+        handles.engine.height,
+        100,
+      );
+      handles.engine.markDirty();
+      setTemplatesOpen(false);
+    },
+    [handles],
+  );
+
   const handleJoinCall = useCallback(
     (withVideo: boolean) => {
       if (!meta) return;
@@ -330,6 +357,31 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
             api.setTitle(code, title).catch(() => {});
           }}
         />
+        <BoardMenu
+          disabled={meta?.readOnly}
+          onTemplates={() => setTemplatesOpen(true)}
+          onAI={() => setAiOpen(true)}
+          onExportPNG={(scale, transparent) => {
+            if (!handles) return;
+            try {
+              exportPNG(handles.engine, { scale, transparent });
+            } catch (err) {
+              setAiError(err instanceof Error ? err.message : 'Export failed.');
+              setAiOpen(true);
+            }
+          }}
+          onExportJSON={() => handles && exportJSON(handles.doc, meta?.title ?? 'board')}
+          onImportJSON={async (file) => {
+            if (!handles) return;
+            try {
+              const n = await importJSON(handles.doc, file);
+              setAiStatus(`Imported ${n} shapes.`);
+            } catch (err) {
+              setAiError(err instanceof Error ? err.message : 'Import failed.');
+              setAiOpen(true);
+            }
+          }}
+        />
         <ThemeMenu theme={theme} onChange={applyTheme} />
       </header>
 
@@ -346,6 +398,12 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
       )}
 
       {shapeCount === 0 && !meta?.readOnly && <EmptyHint />}
+
+      <TemplateGallery
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+        onInsert={handleInsertTemplate}
+      />
 
       <CommandBar
         open={aiOpen}
