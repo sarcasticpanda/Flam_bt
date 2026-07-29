@@ -17,6 +17,8 @@ import { ShortcutsOverlay } from '../components/ShortcutsOverlay';
 import { EmptyHint } from '../components/EmptyHint';
 import { PresenceBar } from '../components/PresenceBar';
 import { CommandBar } from '../components/CommandBar';
+import { CallPanel } from '../components/CallPanel';
+import { CallManager, type CallParticipant } from '../features/call/CallManager';
 import { runAIFeature } from '../features/ai/run';
 import type { AIFeatureId } from '@board/shared';
 import type { StyleDefaults, ToolId } from '../canvas/tools/types';
@@ -48,6 +50,10 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
 
   const identityRef = useRef(loadIdentity());
   const sessionRef = useRef<Session | null>(null);
+
+  const callRef = useRef<CallManager | null>(null);
+  const [callParticipants, setCallParticipants] = useState<CallParticipant[]>([]);
+  const [callVersion, setCallVersion] = useState(0);
 
   // ---- load board metadata -------------------------------------------------
   useEffect(() => {
@@ -197,6 +203,38 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
     [handles, meta],
   );
 
+  const handleJoinCall = useCallback(
+    (withVideo: boolean) => {
+      if (!meta) return;
+      if (!callRef.current) {
+        const call = new CallManager(meta.code, identityRef.current);
+        call.onChange = () => {
+          setCallParticipants(call.getParticipants());
+          setCallVersion((v) => v + 1);
+        };
+        // Media state travels on Yjs awareness, NOT the peer connection — one source of truth
+        // for presence, and it survives a failed peer connection.
+        call.onLocalMedia = (m) => sessionRef.current?.setMedia({ ...m, inCall: true });
+        callRef.current = call;
+      }
+      void callRef.current.join(withVideo);
+    },
+    [meta],
+  );
+
+  const handleLeaveCall = useCallback(() => {
+    callRef.current?.leave();
+    sessionRef.current?.setMedia({ inCall: false, muted: true, cameraOn: false, isSpeaking: false });
+    setCallParticipants([]);
+    setCallVersion((v) => v + 1);
+  }, []);
+
+  // Leaving the board or closing the tab must tear the call down, or the mic stays live and
+  // peers keep a ghost tile.
+  useEffect(() => {
+    return () => callRef.current?.leave();
+  }, []);
+
   const applyTheme = useCallback((next: ThemeName) => {
     document.documentElement.dataset.theme = next;
     localStorage.setItem('board:theme', next);
@@ -318,6 +356,17 @@ export function Board({ code, onLeave }: { code: string; onLeave: () => void }) 
         onClose={() => setAiOpen(false)}
         onRun={handleRunAI}
       />
+
+      {!meta?.readOnly && (
+        <CallPanel
+          call={callRef.current}
+          participants={callParticipants}
+          colorFor={(i) => sessionRef.current?.colorFor(i) ?? '#888'}
+          onJoin={handleJoinCall}
+          onLeave={handleLeaveCall}
+          version={callVersion}
+        />
+      )}
 
       <PerfHUD engine={handles?.engine ?? null} visible={hudVisible} />
       <ZoomControls engine={handles?.engine ?? null} hudVisible={hudVisible} />

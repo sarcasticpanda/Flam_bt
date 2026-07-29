@@ -7,6 +7,12 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    // simple-peer (via randombytes) reaches for the Node `global`, which does not exist in the
+    // browser. Vite does not polyfill Node globals, so the module throws at import time and
+    // takes the whole call feature down with it.
+    global: 'globalThis',
+  },
   resolve: {
     alias: {
       // Source aliases rather than built packages — one less build step in the dev loop, and
