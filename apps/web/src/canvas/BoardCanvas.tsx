@@ -15,6 +15,10 @@ interface Props {
   userId: string;
   onReady: (h: BoardHandles) => void;
   onEditText: (shape: Shape) => void;
+  /** Broadcast the local cursor over awareness. Null when the pointer leaves the canvas. */
+  onCursor?: (world: { x: number; y: number } | null) => void;
+  /** Fired after any pan or zoom, so the camera can be shared for follow-mode. */
+  onCameraChange?: () => void;
 }
 
 /**
@@ -24,8 +28,15 @@ interface Props {
  * manager separately. Putting shape state in React here would re-run reconciliation on every
  * pointer move — see CLAUDE.md rule 3.
  */
-export function BoardCanvas({ userId, onReady, onEditText }: Props) {
+export function BoardCanvas({ userId, onReady, onEditText, onCursor, onCameraChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Held in refs so the mount-only effect below always calls the LATEST callback without
+  // needing them in its dependency array — which would tear down and rebuild the engine.
+  const cursorRef = useRef(onCursor);
+  const cameraRef = useRef(onCameraChange);
+  cursorRef.current = onCursor;
+  cameraRef.current = onCameraChange;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -96,11 +107,18 @@ export function BoardCanvas({ userId, onReady, onEditText }: Props) {
         panLast = { x: e.clientX, y: e.clientY };
         engine.markDirty();
         engine.markOverlayDirty();
+        cameraRef.current?.();
         return;
       }
-      tools.pointerMove(toCanvasEvent(e));
+      const ev = toCanvasEvent(e);
+      tools.pointerMove(ev);
+      cursorRef.current?.(ev.world);
       container.style.cursor = spaceHeld ? 'grab' : tools.cursor;
     };
+
+    // Clear the cursor for peers when the pointer leaves — otherwise it freezes mid-board and
+    // reads as someone standing still rather than someone who left.
+    const onPointerLeave = () => cursorRef.current?.(null);
 
     const onPointerUp = (e: PointerEvent) => {
       try {
@@ -146,6 +164,7 @@ export function BoardCanvas({ userId, onReady, onEditText }: Props) {
       }
       engine.markDirty();
       engine.markOverlayDirty();
+      cameraRef.current?.();
     };
 
     const isTyping = (target: EventTarget | null) =>
@@ -247,6 +266,7 @@ export function BoardCanvas({ userId, onReady, onEditText }: Props) {
     container.addEventListener('pointerup', onPointerUp);
     container.addEventListener('pointercancel', onPointerUp);
     container.addEventListener('dblclick', onDoubleClick);
+    container.addEventListener('pointerleave', onPointerLeave);
     container.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -265,6 +285,7 @@ export function BoardCanvas({ userId, onReady, onEditText }: Props) {
       container.removeEventListener('pointerup', onPointerUp);
       container.removeEventListener('pointercancel', onPointerUp);
       container.removeEventListener('dblclick', onDoubleClick);
+      container.removeEventListener('pointerleave', onPointerLeave);
       container.removeEventListener('wheel', onWheel);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);

@@ -116,12 +116,16 @@ server.on('upgrade', (request, socket, head) => {
   // Socket.IO attaches its own upgrade handler; leave its path alone.
   if (url.pathname.startsWith('/socket.io')) return;
 
-  if (url.pathname !== '/yjs') {
-    socket.destroy();
-    return;
+  // Accept both `/yjs/CODE` (what the y-websocket client produces) and `/yjs?room=CODE`.
+  // Matching the standard client's URL shape means we get its reconnect/backoff logic for free
+  // while still owning the server side of the protocol.
+  let code: string | null = null;
+  if (url.pathname.startsWith('/yjs/')) {
+    code = decodeURIComponent(url.pathname.slice('/yjs/'.length));
+  } else if (url.pathname === '/yjs') {
+    code = url.searchParams.get('room');
   }
 
-  const code = url.searchParams.get('room');
   if (!code) {
     socket.destroy();
     return;
