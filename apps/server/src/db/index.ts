@@ -32,7 +32,29 @@ async function connect(): Promise<Store> {
       idleTimeoutMillis: 30_000,
     });
     const store = createPostgresStore(pool);
-    await store.init();
+    try {
+      await store.init();
+    } catch (err) {
+      // A wrong or unreachable DATABASE_URL otherwise surfaces as a raw ECONNREFUSED stack
+      // trace, which says nothing about which setting is wrong. This is the single most likely
+      // thing to go wrong on a first deploy, so name it.
+      // node-postgres surfaces DNS/TCP failures as an AggregateError whose own `message` is
+      // empty — the useful text is on the nested errors, so reach in for it.
+      const detail =
+        err instanceof AggregateError
+          ? [...new Set(err.errors.map((e) => (e as Error)?.message ?? String(e)))].join('; ')
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      const host = url.replace(/\/\/[^@]*@/, '//***@');
+      throw new Error(
+        `Could not connect to the database.\n` +
+          `  DATABASE_URL: ${host}\n` +
+          `  Reason: ${detail}\n` +
+          `  Check the connection string is complete (Neon includes ?sslmode=require), that the ` +
+          `project is not suspended, and that the password has no unescaped characters.`,
+      );
+    }
     console.log('[db] postgres connected');
     return store;
   }

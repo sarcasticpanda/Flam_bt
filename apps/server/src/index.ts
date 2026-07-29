@@ -8,6 +8,7 @@ import { WebSocketServer } from 'ws';
 import { customAlphabet } from 'nanoid';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, inviteSchema, type BoardMember } from '@board/shared';
 import { isOwner, store } from './db/index.js';
+import { checkConfig, printConfig } from './config-check.js';
 import { flushAllRooms, joinRoom, roomStats } from './ws/yjs.js';
 import { registerSignaling } from './ws/signaling.js';
 import { aiRouter } from './routes/ai.js';
@@ -33,7 +34,17 @@ const nanoCode = customAlphabet(ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH);
 // ---------------------------------------------------------------------------
 
 app.get('/healthz', (_req, res) => {
-  res.json({ ok: true, rooms: roomStats(), uptime: Math.round(process.uptime()) });
+  // Reports the DRIVER and any config problems, so a bad deploy is diagnosable with one curl
+  // instead of by reading logs you may not have access to.
+  const issues = checkConfig(store);
+  const blocking = issues.filter((i) => i.level === 'error');
+  res.status(blocking.length ? 503 : 200).json({
+    ok: blocking.length === 0,
+    driver: store.driver,
+    rooms: roomStats(),
+    uptime: Math.round(process.uptime()),
+    config: issues.filter((i) => i.level !== 'ok'),
+  });
 });
 
 // Accounts are deliberately optional.  The anonymous code-link experience remains useful for
@@ -251,6 +262,8 @@ server.on('upgrade', async (request, socket, head) => {
 });
 
 registerSignaling(server, CLIENT_ORIGIN);
+
+printConfig(checkConfig(store));
 
 server.listen(PORT, () => {
   console.log(`[server] http + ws on :${PORT}`);
