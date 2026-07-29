@@ -63,6 +63,10 @@ export function CallJoinButtons({
  * Each tile's ring is that participant's canvas colour, so the person talking on video is
  * visibly the same person as the cursor moving on the board.
  */
+/** Panel width. One constant so the drag clamp, the resize clamp, and the rendered width
+ *  can never disagree — they previously used 260 vs 236 and let the panel drift off-screen. */
+const PANEL_W = 236;
+
 export function CallPanel({
   call,
   participants,
@@ -80,7 +84,7 @@ export function CallPanel({
   // Default to the right side: the style panel owns left-centre, and a call panel that opens
   // on top of the tools you were just using is worse than no default position at all.
   const [pos, setPos] = useState(() => ({
-    x: Math.max(16, window.innerWidth - 260),
+    x: Math.max(16, window.innerWidth - PANEL_W - 16),
     y: 104,
   }));
   const dragging = useRef<{ dx: number; dy: number } | null>(null);
@@ -90,16 +94,35 @@ export function CallPanel({
       if (!dragging.current) return;
       setPos({
         // Clamp so the panel can never be dragged off-screen and stranded.
-        x: Math.max(8, Math.min(window.innerWidth - 260, e.clientX - dragging.current.dx)),
+        x: Math.max(8, Math.min(window.innerWidth - PANEL_W - 8, e.clientX - dragging.current.dx)),
         y: Math.max(8, Math.min(window.innerHeight - 120, e.clientY - dragging.current.dy)),
       });
     };
     const onUp = () => (dragging.current = null);
+
+    /**
+     * Re-clamp into the viewport on resize.
+     *
+     * The initial position is derived from window width at mount. Without this, shrinking the
+     * window — or simply having been opened at a larger size — strands the panel outside the
+     * viewport where it cannot be seen OR dragged back, so the call appears not to start at
+     * all. That was a real reported bug, not a hypothetical.
+     */
+    const onResize = () => {
+      setPos((p) => ({
+        x: Math.max(8, Math.min(window.innerWidth - PANEL_W - 8, p.x)),
+        y: Math.max(8, Math.min(window.innerHeight - 140, p.y)),
+      }));
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('resize', onResize);
+    // Clamp once on mount too: the panel can be opened when the window is already narrow.
+    onResize();
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('resize', onResize);
     };
   }, []);
 
@@ -113,7 +136,7 @@ export function CallPanel({
   return (
     <div
       className="surface absolute z-40 overflow-hidden"
-      style={{ left: pos.x, top: pos.y, width: 236 }}
+      style={{ left: pos.x, top: pos.y, width: PANEL_W }}
     >
       <div
         className="flex cursor-grab items-center justify-between px-2.5 py-1.5 active:cursor-grabbing"

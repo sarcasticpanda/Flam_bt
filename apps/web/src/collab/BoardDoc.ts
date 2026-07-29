@@ -131,16 +131,31 @@ export class BoardDoc {
     this.doc.transact(fn, origin);
   }
 
+  /**
+   * End the current undo group.
+   *
+   * Y.UndoManager merges everything inside `captureTimeout` (400ms) into a single undo step.
+   * That is right for a stream of drag writes, but wrong across two DISTINCT gestures: draw a
+   * box and nudge it within 400ms and one ctrl+Z deleted the box instead of undoing the nudge.
+   * Tools call this at the end of a completed gesture so the next one starts a fresh step.
+   */
+  breakUndoGroup(): void {
+    this.undoManager.stopCapturing();
+  }
+
   add(shape: Shape, origin: TransactionOrigin = this.localOrigin): void {
     this.doc.transact(() => {
       this.shapesMap.set(shape.id, shapeToYMap(shape));
     }, origin);
+    // Creating a shape is always its own undo step.
+    this.breakUndoGroup();
   }
 
   addMany(shapes: Shape[], origin: TransactionOrigin = this.localOrigin): void {
     this.doc.transact(() => {
       for (const s of shapes) this.shapesMap.set(s.id, shapeToYMap(s));
     }, origin);
+    this.breakUndoGroup();
   }
 
   update(id: ShapeId, patch: Partial<Shape>, origin: TransactionOrigin = this.localOrigin): void {

@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 
 export interface AuthTokenPayload {
@@ -9,11 +10,31 @@ export interface AuthTokenPayload {
 
 const SECRET = process.env.JWT_SECRET;
 
+if (!SECRET && process.env.NODE_ENV === 'production') {
+  // Refuse to boot rather than silently issuing forgeable tokens. A deployment that starts
+  // without a secret is strictly worse than one that fails loudly: it looks healthy while
+  // every account on it is open.
+  throw new Error(
+    'JWT_SECRET must be set in production. Generate one with: openssl rand -base64 32',
+  );
+}
 
+/**
+ * Dev fallback is RANDOM PER BOOT, never a hardcoded constant.
+ *
+ * A literal committed here is a published signing key: anyone can mint a token for any user id,
+ * and user ids are not secret — they ride on Yjs awareness to every peer on a board. That was a
+ * real, verified full-account-impersonation bypass, not a theoretical one.
+ *
+ * The cost of randomising is that tokens stop working across a dev server restart. That is a
+ * mildly annoying re-login locally, and it makes the insecure path impossible to deploy by
+ * accident.
+ */
+const EFFECTIVE_SECRET = SECRET ?? randomBytes(32).toString('hex');
 
-// Dev-only fallback so a fresh clone works without an env file for the anonymous-first flow —
-// auth is opt-in, not required to draw.
-const EFFECTIVE_SECRET = SECRET ?? 'dev-only-insecure-secret-do-not-deploy';
+if (!SECRET) {
+  console.warn('[auth] JWT_SECRET not set — using a random per-boot secret. Sessions reset on restart.');
+}
 
 const EXPIRY = '30d';
 

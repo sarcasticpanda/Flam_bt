@@ -321,7 +321,11 @@ export class SelectTool implements Tool {
       if (!current) continue;
       patches.push({ id, patch: current as Partial<Shape> });
     }
-    if (patches.length > 0) ctx.doc.updateMany(patches);
+    if (patches.length === 0) return;
+    ctx.doc.updateMany(patches);
+    // A finished move/resize/rotate is one undo step, and must not merge with whatever the
+    // user does next (or with the create that may have just preceded it).
+    ctx.doc.breakUndoGroup();
   }
 
   // -------------------------------------------------------------------------
