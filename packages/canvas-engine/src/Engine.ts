@@ -372,7 +372,24 @@ export class Engine {
     }
 
     const r = { ctx, zoom, theme: this.theme };
-    for (const shape of visible) drawShape(r, shape);
+    for (const shape of visible) {
+      // While a shape's text is being edited, the contenteditable overlay IS the text. Drawing
+      // it underneath as well produces a visible double-render offset by a pixel or two.
+      if (shape.id === this.editingShapeId && 'text' in shape) {
+        if (shape.type === 'text') continue;
+        drawShape(r, { ...shape, text: '' } as Shape);
+        continue;
+      }
+      drawShape(r, shape);
+    }
+  }
+
+  /** Set while an inline text editor is open over a shape. */
+  editingShapeId: ShapeId | null = null;
+
+  setEditing(id: ShapeId | null): void {
+    this.editingShapeId = id;
+    this.markDirty();
   }
 
   /**

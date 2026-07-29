@@ -1,79 +1,115 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Engine, seedShapes } from '@board/canvas-engine';
-import { THEMES, type ThemeName } from '@board/shared';
-import { CanvasView } from './canvas/CanvasView';
+import { seedShapes } from '@board/canvas-engine';
+import { THEMES, newShapeId, type Shape, type ThemeName } from '@board/shared';
+import { BoardCanvas, type BoardHandles } from './canvas/BoardCanvas';
+import { TextEditor } from './canvas/TextEditor';
 import { PerfHUD } from './components/PerfHUD';
 import { ZoomControls } from './components/ZoomControls';
 import { ThemeMenu } from './components/ThemeMenu';
 import { DevSeeder } from './components/DevSeeder';
+import { Toolbar } from './components/Toolbar';
+import { StylePanel } from './components/StylePanel';
+import { ShortcutsOverlay } from './components/ShortcutsOverlay';
+import { EmptyHint } from './components/EmptyHint';
+import type { StyleDefaults, ToolId } from './canvas/tools/types';
+
+/** Stable per-browser identity. Block C replaces the name with a real prompt. */
+function getUserId(): string {
+  let id = localStorage.getItem('board:userId');
+  if (!id) {
+    id = newShapeId();
+    localStorage.setItem('board:userId', id);
+  }
+  return id;
+}
 
 export default function App() {
-  const [engine, setEngine] = useState<Engine | null>(null);
-  const [hudVisible, setHudVisible] = useState(true);
+  const [handles, setHandles] = useState<BoardHandles | null>(null);
+  const [hudVisible, setHudVisible] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [editing, setEditing] = useState<Shape | null>(null);
   const [theme, setTheme] = useState<ThemeName>(
     () => (document.documentElement.dataset.theme as ThemeName) ?? 'paper',
   );
-  const engineRef = useRef<Engine | null>(null);
 
-  const handleReady = useCallback((e: Engine) => {
-    engineRef.current = e;
-    setEngine(e);
+  // Chrome state mirrored out of the tool manager. This is the ONLY thing React re-renders for
+  // — never shape data.
+  const [activeTool, setActiveTool] = useState<ToolId>('select');
+  const [selectionCount, setSelectionCount] = useState(0);
+  const [style, setStyle] = useState<StyleDefaults | null>(null);
+  const [shapeCount, setShapeCount] = useState(0);
 
-    // Dev handle for Playwright. The canvas is a bitmap — assertions cannot read the DOM, so
-    // the test suite needs a way to inspect real board state. See docs/06-VERIFICATION.md.
+  const userIdRef = useRef(getUserId());
+
+  const handleReady = useCallback((h: BoardHandles) => {
+    setHandles(h);
+    setStyle({ ...h.tools.style });
+
+    h.tools.onChange = () => {
+      setActiveTool(h.tools.activeToolId);
+      setSelectionCount(h.tools.getSelection().length);
+      setStyle({ ...h.tools.style });
+    };
+
+    // The empty-state hint needs to know when the first shape lands.
+    h.doc.shapesMap.observe(() => setShapeCount(h.engine.shapes.size));
+
     (window as unknown as { __board: unknown }).__board = {
-      shapeCount: () => e.shapes.size,
-      visibleCount: () => e.stats.visible,
-      stats: () => ({ ...e.stats }),
-      camera: () => e.camera.serialize(),
-      shapeIds: () => [...e.shapes.keys()],
+      shapeCount: () => h.engine.shapes.size,
+      visibleCount: () => h.engine.stats.visible,
+      stats: () => ({ ...h.engine.stats }),
+      camera: () => h.engine.camera.serialize(),
+      shapeIds: () => [...h.engine.shapes.keys()],
+      shapes: () => h.engine.allShapes(),
+      selection: () => h.tools.getSelection(),
+      setTool: (id: ToolId) => h.tools.setTool(id),
+      undo: () => h.doc.undoManager.undo(),
+      redo: () => h.doc.undoManager.redo(),
       seed: (n: number) => {
-        e.setShapes(seedShapes({ count: n }));
-        return e.shapes.size;
+        h.doc.loadJSON(seedShapes({ count: n }));
+        return h.engine.shapes.size;
       },
+      clear: () => h.doc.loadJSON([]),
       fitAll: () => {
-        const b = e.index.totalBounds();
-        if (b) e.camera.fitTo(b, e.width, e.height, 0);
-        e.markDirty();
-        return e.camera.serialize();
+        const b = h.engine.index.totalBounds();
+        if (b) h.engine.camera.fitTo(b, h.engine.width, h.engine.height, 0);
+        h.engine.markDirty();
+        return h.engine.camera.serialize();
       },
       setZoom: (z: number) => {
-        e.camera.zoom = z;
-        e.markDirty();
-        return e.camera.zoom;
+        h.engine.camera.zoom = z;
+        h.engine.markDirty();
+        return h.engine.camera.zoom;
       },
-      /**
-       * Synchronous cull+draw benchmark.
-       *
-       * Headless browsers throttle rAF to 1Hz, which makes end-to-end frame cadence useless as
-       * a measure of engine cost. This times the actual work instead.
-       */
       bench: (iterations: number) => {
         const times: number[] = [];
         for (let i = 0; i < iterations; i++) {
-          // Nudge the camera so no frame can be trivially cached.
-          e.camera.pan(1, 0.6);
+          h.engine.camera.pan(1, 0.6);
           const t0 = performance.now();
-          e.renderStaticNow();
+          h.engine.renderStaticNow();
           times.push(performance.now() - t0);
         }
         times.sort((a, b) => a - b);
         const mean = times.reduce((a, b) => a + b, 0) / times.length;
         return {
           mean: +mean.toFixed(3),
-          median: +times[Math.floor(times.length / 2)]!.toFixed(3),
           p95: +times[Math.floor(times.length * 0.95)]!.toFixed(3),
-          worst: +times[times.length - 1]!.toFixed(3),
           impliedFps: Math.round(1000 / mean),
-          visible: e.stats.visible,
-          total: e.stats.total,
-          culledPct: +e.stats.culledPct.toFixed(1),
-          msCull: +e.stats.msCull.toFixed(3),
-          msDraw: +e.stats.msDraw.toFixed(3),
+          visible: h.engine.stats.visible,
+          total: h.engine.stats.total,
+          culledPct: +h.engine.stats.culledPct.toFixed(1),
+          msCull: +h.engine.stats.msCull.toFixed(3),
+          msDraw: +h.engine.stats.msDraw.toFixed(3),
         };
       },
     };
   }, []);
+
+  const handleEditText = useCallback((shape: Shape) => setEditing(shape), []);
+
+  useEffect(() => {
+    handles?.engine.setEditing(editing?.id ?? null);
+  }, [handles, editing]);
 
   const applyTheme = useCallback((next: ThemeName) => {
     document.documentElement.dataset.theme = next;
@@ -92,8 +128,12 @@ export default function App() {
         e.preventDefault();
         setHudVisible((v) => !v);
       }
-      // Cycle themes with T — the fastest way to eyeball all five during the design pass.
-      if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey) {
+      if (e.key === '?') {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      }
+      // Shift+T cycles themes — the fastest way to eyeball all five during a design pass.
+      if (e.key === 'T' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
         const i = THEMES.indexOf((document.documentElement.dataset.theme as ThemeName) ?? 'paper');
         applyTheme(THEMES[(i + 1) % THEMES.length]!);
       }
@@ -104,15 +144,44 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <CanvasView onReady={handleReady} />
+      <BoardCanvas
+        userId={userIdRef.current}
+        onReady={handleReady}
+        onEditText={handleEditText}
+      />
+
+      {handles && editing && (
+        <TextEditor
+          engine={handles.engine}
+          shape={editing}
+          onCommit={(text) => {
+            handles.tools.commitText(editing.id, text);
+            setEditing(null);
+          }}
+          onCancel={() => setEditing(null)}
+        />
+      )}
 
       <header className="pointer-events-none absolute top-4 right-4 z-40 flex items-center gap-2">
         <ThemeMenu theme={theme} onChange={applyTheme} />
       </header>
 
-      <PerfHUD engine={engine} visible={hudVisible} />
-      <ZoomControls engine={engine} hudVisible={hudVisible} />
-      <DevSeeder engine={engine} />
+      {style && (
+        <StylePanel
+          style={style}
+          selectionCount={selectionCount}
+          onChange={(patch) => handles?.tools.setStyle(patch)}
+        />
+      )}
+
+      <Toolbar active={activeTool} onSelect={(id) => handles?.tools.setTool(id)} />
+
+      {shapeCount === 0 && <EmptyHint />}
+
+      <PerfHUD engine={handles?.engine ?? null} visible={hudVisible} />
+      <ZoomControls engine={handles?.engine ?? null} hudVisible={hudVisible} />
+      <DevSeeder engine={handles?.engine ?? null} doc={handles?.doc ?? null} />
+      <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }

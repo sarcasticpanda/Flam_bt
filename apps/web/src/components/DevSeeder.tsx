@@ -1,29 +1,26 @@
 import { useState } from 'react';
 import { seedShapes, type Engine } from '@board/canvas-engine';
+import type { BoardDoc } from '../collab/BoardDoc';
 
 /**
- * Dev-only seeder. The verification harness for every performance claim in this project.
+ * Dev-only seeder — the verification harness for every performance claim in this project.
  *
- * Kept visible during the build rather than hidden behind a flag: a target you have to go
- * looking for is a target nobody measures. Gated out of production builds below.
+ * Seeds through the DOCUMENT rather than straight into the engine, so seeded shapes behave
+ * exactly like drawn ones: undoable, exportable, and (from Block C) synced to peers. A seeder
+ * that bypasses the document tests a code path that does not exist in production.
  */
-export function DevSeeder({ engine }: { engine: Engine | null }) {
+export function DevSeeder({ engine, doc }: { engine: Engine | null; doc: BoardDoc | null }) {
   const [lastMs, setLastMs] = useState<number | null>(null);
 
-  if (!engine || !import.meta.env.DEV) return null;
+  if (!engine || !doc || !import.meta.env.DEV) return null;
 
   const seed = (count: number) => {
     const t0 = performance.now();
-    engine.setShapes(seedShapes({ count }));
+    doc.loadJSON(seedShapes({ count }));
     const bounds = engine.index.totalBounds();
     if (bounds) engine.camera.fitTo(bounds, engine.width, engine.height);
     engine.markDirty();
     setLastMs(performance.now() - t0);
-  };
-
-  const clear = () => {
-    engine.setShapes([]);
-    setLastMs(null);
   };
 
   return (
@@ -41,11 +38,14 @@ export function DevSeeder({ engine }: { engine: Engine | null }) {
           className="h-7 rounded-md px-2.5 transition-colors hover:bg-[var(--chrome-raised)]"
           style={{ color: 'var(--chrome-fg)', fontFamily: 'var(--font-mono)', fontSize: 11 }}
         >
-          {n >= 1000 ? `${n / 1000}k` : n}
+          {n / 1000}k
         </button>
       ))}
       <button
-        onClick={clear}
+        onClick={() => {
+          doc.loadJSON([]);
+          setLastMs(null);
+        }}
         className="h-7 rounded-md px-2.5 transition-colors hover:bg-[var(--chrome-raised)]"
         style={{ color: 'var(--chrome-fg-dim)', fontFamily: 'var(--font-mono)', fontSize: 11 }}
       >
